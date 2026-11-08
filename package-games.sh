@@ -1,5 +1,5 @@
 #!/bin/bash
-# Put the ps2max games on a USB stick or SD card, for mxloader:
+# Put the ps2max games on a USB stick or SD card, for mxshell:
 #
 #   package-games.sh <mount point of the card>
 #

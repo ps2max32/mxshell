@@ -1,4 +1,4 @@
-/* mxloader's shell: a carousel of the games on the device in use. Runs as an
+/* mxshell's shell: a carousel of the games on the device in use. Runs as an
    ordinary program on what mxlink offers; a game starts by mx_loader_launch,
    with the IOP as it is. A kernel of version 9 keeps the shell meanwhile and
    the call returns when the game ends; an older one starts it again. */
@@ -57,7 +57,7 @@ static void background(void) {
 }
 
 static void header(void) {
-  gfx_text(FONT_BIG, 44, 62, "mxloader", RGB(WHITE), 0.9f);
+  gfx_text(FONT_BIG, 44, 62, "mxshell", RGB(WHITE), 0.9f);
   gfx_rect(44, 70, 96, 73, RGB(ACCENT), RGB(ACCENT));
   float x = 596;
   for (int i = NDEVS - 1; i >= 0; i--) {
