@@ -19,7 +19,7 @@ export EXTRA_CFLAGS = -Os -ffunction-sections -fdata-sections
 
 include $(PS2MAX)/libs/maxsdk/mk/maxsdk.mk
 
-SRCS = main.c draw.c cover.c games.c
+SRCS = main.c draw.c cover.c games.c console.c
 OBJS = $(SRCS:%.c=$(OUT)/obj/%.o) $(OUT)/obj/font.o
 # the storage drivers, one device's at a time
 STORAGE_MODULES = bdm bdmfs_fatfs usbd usbmass_bd mx4sio_bd mxata

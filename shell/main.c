@@ -17,7 +17,7 @@
    its core at a run of its own, with this core heap */
 MX_CORE_HEAP(512 << 10);
 
-enum { S_SEARCH, S_MAIN, S_INFO, S_DEVICE, S_EMPTY, S_START, S_FAILED };
+enum { S_SEARCH, S_MAIN, S_INFO, S_DEVICE, S_EMPTY, S_START, S_FAILED, S_CONSOLE };
 
 #define ACCENT 0xF0A83Cu
 #define WHITE 0xF4F4F0u
@@ -132,7 +132,8 @@ static void footer(void) {
   x = gfx_text(FONT_SMALL, x, y, SYM_TRIANGLE, RGB(0x60D8A0), 1) + 4;
   x = gfx_text(FONT_SMALL, x, y, "Info", RGB(WHITE), 1) + 34;
   x = gfx_text(FONT_SMALL, x, y, SYM_SQUARE, RGB(0xE890C0), 1) + 4;
-  gfx_text(FONT_SMALL, x, y, "Apparaat", RGB(WHITE), 1);
+  x = gfx_text(FONT_SMALL, x, y, "Apparaat", RGB(WHITE), 1) + 34;
+  gfx_text(FONT_SMALL, x, y, "R1 Console", RGB(WHITE), 1);
 }
 
 static void titles(void) {
@@ -300,6 +301,15 @@ static void failed(void) {
   gfx_text(FONT_SMALL, x, 286, "Terug", RGB(WHITE), 1);
 }
 
+/* a service's console (console.c), over the screen it came from */
+static int console_from = S_MAIN;
+static void console(void) {
+  panel(40, 70, 600, 420);
+  console_draw(40, 70, 600, 384);
+  float x = gfx_text(FONT_SMALL, 58, 404, SYM_CIRCLE, RGB(0xF08878), 1) + 4;
+  gfx_text(FONT_SMALL, x, 404, "Terug", RGB(WHITE), 1);
+}
+
 static void draw(void) {
   gfx_begin();
   if (covers_new) {
@@ -317,6 +327,13 @@ static void draw(void) {
     break;
   case S_START:
     starting();
+    break;
+  case S_CONSOLE:
+    if (console_from == S_MAIN) {
+      carousel();
+      titles();
+    }
+    console();
     break;
   default:
     carousel();
@@ -399,6 +416,12 @@ static void input(void) {
       screen = S_DEVICE, dev_sel = dev;
     if (p & MX_PAD_SELECT)
       mx_exit(0);
+    if (p & MX_PAD_R1)
+      console_from = screen, screen = S_CONSOLE;
+    break;
+  case S_CONSOLE:
+    if (p & (MX_PAD_CIRCLE | MX_PAD_R1))
+      screen = console_from;
     break;
   case S_INFO:
     if (p & MX_PAD_CIRCLE)
@@ -427,8 +450,8 @@ static void input(void) {
 }
 
 /* Arguments, for tests from the host: dev=usb|mx4sio|hdd|host, right=<n> (that many games
-   to the right), info, device, shot (the picture to host:shell.tga, then the
-   end). */
+   to the right), info, device, console (the service's console, no device
+   looked at), shot (the picture to host:shell.tga, then the end). */
 static int test_shot, test_right, test_screen = -1;
 static void arguments(int argc, char **argv) {
   for (int i = 1; i < argc; i++) {
@@ -456,6 +479,8 @@ static void arguments(int argc, char **argv) {
       test_screen = S_DEVICE;
     else if (!strcmp(a, "start"))
       test_screen = S_START;
+    else if (!strcmp(a, "console"))
+      test_screen = S_CONSOLE;
     else if (!strncmp(a, "right=", 6))
       test_right = a[6] - '0';
   }
@@ -470,8 +495,15 @@ int main(int argc, char **argv) {
     return 1;
   }
   pad_on = mx_pad_init() >= 0;
-  search(dev);
   u32 shot_at = 0;
+  if (test_screen == S_CONSOLE) {
+    /* the console alone, no device looked at: its picture once the
+       service's lines are there */
+    ngames = 0;
+    console_from = S_EMPTY, screen = S_CONSOLE;
+    shot_at = 120;
+  } else
+    search(dev);
   for (;;) {
     u32 v = mx_gs.vsync;
     ticks++;
@@ -489,6 +521,7 @@ int main(int argc, char **argv) {
         shot_at = ticks + 90;
       }
     }
+    console_poll();
     input();
     pos += ((float)place - pos) * 0.2f;
     draw();

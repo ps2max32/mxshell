@@ -80,4 +80,10 @@ u64 cover_tex0(u32 i);
 #define COVER_W 128.0f
 #define COVER_H 176.0f
 
+/* ---- console.c: a service's console (its lines in the kernel's log) -------- */
+
+void console_poll(void);
+u32 console_lines(void);
+void console_draw(float x0, float y0, float x1, float y1);
+
 #endif
