@@ -15,12 +15,12 @@
 
 #define BUF_W 640u
 
-static u8 rec[3 * 128 * 1024] MX_ALIGNED(64);
+static u8 rec[3 * 128 * 1024] MX_ALIGNED(64) MX_CORE_DATA; /* the DMAC reads it: core */
 static float ys;
 static u32 vram_next;
 static struct mx_tex font_tex;
 static u64 font_tex0;
-static u32 font_clut[16] MX_ALIGNED(64);
+static u32 font_clut[16] MX_ALIGNED(64) MX_CORE_DATA;
 static int font_sent;
 
 extern const u8 font_bin[]; /* font.S */

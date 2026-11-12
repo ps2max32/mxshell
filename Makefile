@@ -17,9 +17,10 @@ PS2MAX_IRX     ?= $(PS2MAX_IOP_SDK)/iop/irx
 MAXSDK_OUT = $(OUT)/maxsdk
 export EXTRA_CFLAGS = -Os -ffunction-sections -fdata-sections
 
-# an MXOS program all in core (mxos-core): it stays while another program runs,
-# and the kernel has one VM, the program in front's
-MX_TARGET = mxos-core
+# an MXOS program with VM: it stays while another program runs, in an address
+# space of its own (the kernel's VM programs side by side, mx OS plan 3a); what
+# the DMAC or the IOP reads is in core (MX_CORE_DATA)
+MX_TARGET = mxos
 include $(PS2MAX)/libs/maxsdk/mk/maxsdk.mk
 
 SRCS = main.c draw.c cover.c games.c console.c

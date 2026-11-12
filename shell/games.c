@@ -59,7 +59,7 @@ void dev_save(int dev) {
   mx_fio_close(fd);
 }
 
-static u8 irx[128 * 1024] MX_ALIGNED(64);
+static u8 irx[128 * 1024] MX_ALIGNED(64) MX_CORE_DATA; /* the IOP reads it by SIF DMA: core */
 
 static int load(const char *file) {
   char path[48];

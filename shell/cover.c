@@ -12,8 +12,9 @@
 #define CW 128
 #define CH 176
 
-static u8 pix[MAX_GAMES][CW * CH] MX_ALIGNED(64);
-static u32 clut[MAX_GAMES][256] MX_ALIGNED(64);
+/* sent by DMA: core */
+static u8 pix[MAX_GAMES][CW * CH] MX_ALIGNED(64) MX_CORE_DATA;
+static u32 clut[MAX_GAMES][256] MX_ALIGNED(64) MX_CORE_DATA;
 static struct mx_tex tex[MAX_GAMES];
 static u64 tex0[MAX_GAMES];
 
