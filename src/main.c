@@ -73,35 +73,40 @@ void hints_draw(const char *const *p) {
   }
 }
 
-/* ---- power-on: a point of light, a horizon, the mark, the shelf ---- */
+/* ---- power-on: a point of light, a horizon, the mark, the shelf ----
+   3.4 s: the point (0 - 0.8), the horizon drawn out (0.6 - 1.6), MXOS
+   rising out of it (1.4 - 2.2), held, then all fading (2.8 - 3.4) */
+#define BOOT_END 3.4f
 void boot_draw(void) {
   float t = (float)(ticks - screen_at) * frame_dt;
   float cx = SCR_W / 2, cy = FLOOR_Y;
-  float k = clampf((t - 0.4f) / 0.5f, 0, 1);
-  k = 1 - (1 - k) * (1 - k);
-  float fade = t > 1.4f ? clampf(1 - (t - 1.4f) / 0.4f, 0, 1) : 1;
-  float m = clampf((t - 0.8f) / 0.3f, 0, 1) * fade;
+  float k = clampf((t - 0.6f) / 1.0f, 0, 1);
+  k = 1 - (1 - k) * (1 - k) * (1 - k);
+  float fade = t > 2.8f ? clampf(1 - (t - 2.8f) / 0.6f, 0, 1) : 1;
+  float m = clampf((t - 1.4f) / 0.8f, 0, 1);
+  m = m * m * (3 - 2 * m);
   /* the lights are the room's (opaque); the line and the mark over them */
   room_begin(-1);
-  if (t < 0.4f)
-    room_light(cx, cy, 24, 24, 0.9f * clampf(t / 0.2f, 0, 1));
-  else if (t < 1.8f) {
+  float p = clampf(t / 0.4f, 0, 1) * (1 - k);
+  if (p > 0)
+    room_light(cx, cy, 24, 24, 0.9f * p * fade);
+  if (k > 0)
     room_light(cx, cy, 320 * k + 1, 44, 0.16f * fade);
-    if (m > 0)
-      room_light(cx, cy - 60, 150, 90, 0.10f * m);
-  }
+  if (m > 0)
+    room_light(cx, cy - 60, 220, 100, 0.10f * m * fade);
   d_begin_2d();
   room_draw();
-  if (t >= 0.4f && t < 1.8f) {
+  if (k > 0) {
     float half = SCR_W * 0.42f * k;
     d_rect_h(cx - half, cy, cx, cy + 1.5f, argb(C_LAMP, 0), argb(C_LAMP, 0.9f * fade));
     d_rect_h(cx, cy, cx + half, cy + 1.5f, argb(C_LAMP, 0.9f * fade), argb(C_LAMP, 0));
-    if (m > 0) {
-      float w = d_text_w(FONT_DISP, "mx");
-      d_text(FONT_DISP, cx - w / 2, cy - 36 - 12 * (1 - m), "mx", argb(C_WHITE, m));
-    }
   }
-  if (t >= 1.8f) {
+  if (m > 0) {
+    const char *mark = "MXOS";
+    float w = d_text_w(FONT_DISP, mark);
+    d_text(FONT_DISP, cx - w / 2, cy - 36 - 16 * (1 - m), mark, argb(C_WHITE, m * fade));
+  }
+  if (t >= BOOT_END) {
     screen = SCR_HOME, screen_at = ticks;
     home_enter();
   }
@@ -284,6 +289,13 @@ int main(int argc, char **argv) {
   for (;;) {
     ticks++;
     read_pad();
+    /* the covers of a device as soon as its games are found, not after the
+       devices after it (an HDD that is not there takes 10 s to give up on) */
+    static int covered;
+    if (ngames != covered) {
+      games_textures();
+      covered = ngames;
+    }
     if (games_searching && ticks % 15 == 0 && games_step()) {
       games_searching = 0;
       games_textures();

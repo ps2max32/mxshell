@@ -18,7 +18,7 @@ The design was settled on mockups first (not in this repository). This plan says
 | Settings | Video (the shell's mode is the system's and the most a game gets; games ask for Auto), Controllers, Network, Storage, Date and time, Notifications, System |
 | Notifications | **Toast**: cards top right in the shell, the newest lit, older ones smaller and dimmer, about 4 s; urgent ones (battery empty) stay until a button. During a game: not shown for now (the game owns the GS); they wait and are shown when the shell comes in front, and in the Notifications tile. The same card drawn over the game is a later step |
 | Sound | not adjustable: always 100 % on a PS2 |
-| Power-on, transitions | a point of light, a horizon, the mark, the shelf (1.8 s); launch: the tile opens into the game's first frame; home: the game's picture shrinks to the first tile; resume: the reverse |
+| Power-on, transitions | a point of light, a horizon, MXOS, the shelf (3.4 s); launch: the tile opens into the game's first frame; home: the game's picture shrinks to the first tile; resume: the reverse |
 | Video | 1080i by default (16:9, 16-bit colour, beam racing); NTSC 640 x 448 and PAL 640 x 512 (4:3, pixels not square; 32-bit by beam racing). Layout in square units (1280 or 960 x 720). Dithered 16-bit colour darkens translucent layers: the background and the tiles are worked out on the EE and drawn opaque. No depth test. Over a game: the game's kept picture + the shell's buffers |
 
 ## What the shell needs from the OS
