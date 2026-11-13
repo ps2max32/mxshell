@@ -390,9 +390,19 @@ static void came_back(void) {
   back_path = 0;
 }
 
+/* after a game: no button counts until all are let go (the button that
+   ended the game, still down, started it again) */
+static int input_wait;
+
 static void input(void) {
   u32 p = pad_on ? mx_pad_pressed(0) | mx_pad_pressed(1) : 0;
   u32 held = pad_on ? mx_pad_buttons(0) | mx_pad_buttons(1) : 0;
+  if (input_wait) {
+    if (held)
+      return;
+    input_wait = 0;
+    p = 0;
+  }
   static u32 hold;
   hold = held & (MX_PAD_LEFT | MX_PAD_RIGHT) ? hold + 1 : 0;
   if (hold > 24 && !(hold & 7))
@@ -536,6 +546,7 @@ int main(int argc, char **argv) {
       if (gfx_restart() < 0)
         mx_exit(1);
       pad_on = mx_pad_init() >= 0;
+      input_wait = 1;
       covers_new = ngames;
       screen = S_MAIN;
       back_path = path;
