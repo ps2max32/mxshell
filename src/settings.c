@@ -113,11 +113,12 @@ static int sd_wide(void) { return !strcmp(cfg_get("video.aspect", "4:3"), "16:9"
 static int deflicker(void) { return !strcmp(cfg_get("video.deflicker", "off"), "on"); }
 
 static int video_choice(void) {
-  const char *v = cfg_get("video.mode", "1080i");
+  /* without a setting "sd", the console's own mode from its region (PAL or
+     NTSC): every television and cable shows that */
+  const char *v = cfg_get("video.mode", "sd");
   for (int i = 0; i < VM_MODES; i++)
     if (!strcmp(v, vmodes[i].key))
       return i;
-  /* "sd": the console's own, from its region */
   return mx_video_default() == &mx_video_pal ? VM_PAL : VM_NTSC;
 }
 

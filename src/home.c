@@ -63,22 +63,20 @@ void home_focus_rect(float r[4]) {
 
 u32 home_focus_colour(void) { return focus < ngames ? games[focus].base : 0x23262C; }
 
-static void tile_text(int i, const struct tile_look *t) {
-  if (t->fade < 0.05f)
+/* k: the tile on its way to the hub's slab (0 on the shelf), where its
+   text has more room around it */
+static void tile_text(int i, const struct tile_look *t, float k) {
+  /* a cover speaks for itself: text only on a tile without one */
+  if (t->fade < 0.05f || t->tex)
     return;
   float a = t->fade * (0.45f + 0.55f * t->lit);
-  if (!t->tex) {
-    const char *name = i < ngames ? games[i].title : "Settings";
-    int size = t->lit > 0.5f ? FONT_TITLE : FONT_TILE;
-    float pad = 14 + 2 * t->lit;
-    d_text_fit(size, FONT_BODY, t->x + pad, t->y + pad + (t->lit > 0.5f ? 26 : 20), t->w - 2 * pad, name,
-               argb(C_WHITE, a));
-  }
-  /* a cover speaks for itself: the label only on a tile without one */
-  if (t->tex)
-    return;
+  const char *name = i < ngames ? games[i].title : "Settings";
+  int size = t->lit > 0.5f ? FONT_TITLE : FONT_TILE;
+  float pad = 14 + 2 * t->lit + 4 * k;
+  d_text_fit(size, FONT_BODY, t->x + pad, t->y + pad + (t->lit > 0.5f ? 26 : 20) + 4 * k, t->w - 2 * pad, name,
+             argb(C_WHITE, a));
   const char *sub = i < ngames ? (games[i].type[0] ? games[i].type : "Game") : "System";
-  d_label(t->x + 16, t->y + t->h - 16, sub, argb(C_WHITE, 0.7f * a));
+  d_label(t->x + 16 + 4 * k, t->y + t->h - 16 - 6 * k, sub, argb(C_WHITE, 0.7f * a));
 }
 
 static void caption(float x) {
@@ -112,7 +110,21 @@ static void caption(float x) {
     d_button(bx, y + 104, SYM_TRIANGLE, "Details", 0);
 }
 
-void home_draw(void) {
+/* less of a tile than this is not drawn: a layer that faint only darkens
+   16-bit colour */
+#define FADE_MIN 0.06f
+
+static float mixf(float a, float b, float k) { return a + (b - a) * k; }
+
+void home_draw(void) { home_scene(0, 0); }
+
+/* k > 0: the game's hub coming in (hub.c draws its details over this). The
+   lit tile goes to the slab's place and turn; the other tiles, the floor,
+   the shelf's lights and Home's text fade, the hub's light comes up. All
+   in the one opaque room, as ever (pn.h) */
+void home_scene(float k, const struct tile_look *slab) {
+  float out = clampf(1 - 2.2f * k, 0, 1); /* the shelf's own things */
+  int hub = k > 0.995f;
   spring_step(&fpos, (float)focus, W_FOCUS, frame_dt);
   int visible = (int)((SCR_W - 2 * MARGIN - BIG_W) / (SMALL_W + GAP)) + 1;
   int over = focus - (visible - 2);
@@ -129,15 +141,29 @@ void home_draw(void) {
       fx = t.x;
   }
   lxp = wsum > 0 ? lxp / wsum : MARGIN + BIG_W / 2;
+  /* the lit tile, on the shelf or on its way */
+  struct tile_look ft;
+  layout(focus, &ft);
+  if (slab) {
+    ft.x = mixf(ft.x, slab->x, k), ft.y = mixf(ft.y, slab->y, k);
+    ft.w = mixf(ft.w, slab->w, k), ft.h = mixf(ft.h, slab->h, k);
+    ft.turn = mixf(ft.turn, slab->turn, k), ft.lit = mixf(ft.lit, 1, k), ft.fade = mixf(ft.fade, 1, k);
+  }
 
   /* the room: the floor, the cone of light from above, its pool on the
      floor, the tiles' shadows */
-  room_begin(FLOOR_Y);
-  room_light(lxp, 0, 340, FLOOR_Y + 50, 0.28f);
-  room_light(lxp, FLOOR_Y + 2, 300, 44, 0.34f);
-  for (int i = 0; i < n; i++) {
+  room_begin(hub ? -1 : FLOOR_Y);
+  room_floor(1 - k);
+  if (!hub) {
+    room_light(lxp, 0, 340, FLOOR_Y + 50, 0.28f * (1 - k));
+    room_light(lxp, FLOOR_Y + 2, 300, 44, 0.34f * (1 - k));
+  }
+  if (slab)
+    room_light(slab->x + slab->w * 0.4f, 220, 420, 360, 0.08f * k);
+  for (int i = 0; i < n && !hub; i++) {
     layout(i, &t);
-    if (t.fade > 0)
+    t.fade *= out;
+    if (t.fade > FADE_MIN)
       room_shadow(t.x + t.w * 0.5f, FLOOR_Y + 4, t.w * 0.62f, 20 + 12 * t.lit, (0.35f + 0.3f * t.lit) * t.fade);
   }
   d_begin_2d();
@@ -145,28 +171,42 @@ void home_draw(void) {
 
   /* the tiles, their reflections first */
   d_begin_3d();
-  light_at(lxp, 0);
-  for (int i = 0; i < n; i++) {
+  light_at(slab ? mixf(lxp, slab->x, k) : lxp, 0);
+  for (int i = 0; i < n && !hub; i++) {
     layout(i, &t);
-    if (t.fade > 0)
+    if (i == focus)
+      t = ft; /* its reflection goes with it, and fades */
+    t.fade *= out;
+    if (t.fade > FADE_MIN)
       d_tile_reflection(&t);
   }
-  for (int i = 0; i < n; i++) {
+  for (int i = 0; i < n && !hub; i++) {
     layout(i, &t);
-    if (t.fade > 0)
+    t.fade *= out;
+    if (t.fade > FADE_MIN && i != focus)
       d_tile(&t);
   }
+  d_tile(&ft);
   d_begin_2d();
-  for (int i = 0; i < n; i++) {
+  for (int i = 0; i < n && !hub; i++) {
     layout(i, &t);
-    tile_text(i, &t);
+    t.fade *= out;
+    if (i != focus)
+      tile_text(i, &t, 0);
   }
+  tile_text(focus, &ft, k);
+  if (k > 0.4f)
+    return;
+  /* Home's own text: gone before the hub's comes */
+  ui_fade = clampf(1 - 2.5f * k, 0, 1);
   caption(fx);
 
   static const char *const hints_play[] = {SYM_CROSS, "Play", SYM_TRIANGLE, "Details", "R1", "Settings", 0};
   static const char *const hints_sys[] = {SYM_CROSS, "Open", 0};
   hints_draw(focus < ngames ? hints_play : hints_sys);
-  status_draw();
+  ui_fade = 1;
+  if (!slab)
+    status_draw();
 }
 
 void home_input(void) {

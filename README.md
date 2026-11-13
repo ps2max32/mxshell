@@ -14,7 +14,8 @@ What it does now (PLAN.md, phase A):
   `mx_loader_launch` and the shell waits; its covers and beam racing's memory are given
   back first. Back from the game the shelf comes out of the dark; a game that crashed or
   ended with a status other than 0 leaves a notification.
-- **Settings** (R1): Video (1080i, the default; NTSC 640 x 448; PAL 640 x 512; a new mode
+- **Settings** (R1): Video (without a setting the console's own mode, PAL or NTSC; 1080i, 720p and the others by
+  choice; a new mode
   stays only when kept within 15 s, and Start + Select held at power-on goes back to the
   console's own SD mode), Network (`mc0:/MXOS/IPCONFIG.DAT`, used from the kernel's next start),
   Storage (where it looks for games), Controllers (which ports have a pad; the motors tried),

@@ -13,6 +13,10 @@ static u32 size_kb;
 static int nsaves;
 static char save_name[3][40];
 static struct spring in;
+static int leaving;
+/* tests: hubk=<percent>, the way in held there */
+float hub_pin = -1;
+#define W_HUB 11.0f /* the tile's way to its place: ~360 ms */
 
 /* the size of a directory, its files and those one level down */
 static u32 dir_kb(const char *path, int depth) {
@@ -36,7 +40,7 @@ static u32 dir_kb(const char *path, int depth) {
 
 static void enter(int g) {
   hub_game = g;
-  in.x = 0, in.v = 0;
+  in.x = 0, in.v = 0, leaving = 0;
   char path[112];
   game_path(path, sizeof path, g, "");
   path[strlen(path) - 1] = 0;
@@ -95,38 +99,36 @@ void hub_draw(void) {
   }
   if (g != hub_game)
     enter(g);
-  spring_step(&in, 1, W_LAYER, frame_dt);
+  spring_step(&in, leaving ? 0 : 1, W_HUB, frame_dt);
+  if (hub_pin >= 0)
+    in.x = hub_pin;
+  if (leaving && in.x < 0.004f) {
+    /* the tile is back on the shelf */
+    screen = SCR_HOME, hub_game = -1;
+    home_draw();
+    return;
+  }
   const struct game *gm = &games[g];
-  float k = in.x;
+  float way = in.x;
+  /* the details: once Home's text is gone */
+  float k = clampf((way - 0.45f) / 0.55f, 0, 1);
   int wide = SCR_W > 1100;
 
   /* the slab, turned towards the light */
   struct tile_look t;
   memset(&t, 0, sizeof t);
   t.w = wide ? 262 : 206, t.h = wide ? 370 : 290; /* a DVD case */
-  t.x = wide ? 120 : MARGIN, t.y = 150 + (1 - k) * 24;
-  t.turn = 24 * k;
-  t.lit = 1, t.fade = k;
-  t.base = gm->base, t.tex = gm->tex;
-  t.tex_u = 1, t.tex_v = gm->tex_v;
+  t.x = wide ? 120 : MARGIN, t.y = 150;
+  t.turn = 24;
 
-  room_begin(-1);
-  room_light(t.x + t.w * 0.4f, 220, 420, 360, 0.08f * k);
-  d_begin_2d();
-  room_draw();
-  d_begin_3d();
-  light_at(t.x, 0);
-  d_tile(&t);
-  d_begin_2d();
-  if (!t.tex)
-    d_text_fit(FONT_TITLE, FONT_BODY, t.x + 20, t.y + 50, t.w * 0.8f, gm->title, argb(C_WHITE, k));
-  if (!t.tex)
-    d_label(t.x + 20, t.y + t.h - 22, gm->type[0] ? gm->type : "Game", argb(C_WHITE, 0.7f * k));
+  /* the shelf going, the game's tile on its way here (home.c) */
+  home_scene(way, &t);
+  ui_fade = k;
 
   /* the details */
   float x = (wide ? 500 : t.x + t.w + 64) + (1 - k) * 20, x1 = SCR_W - MARGIN, y = 120;
-  d_label(x, y, gm->type[0] ? gm->type : "Game", argb(C_LAMP, k));
-  d_text_fit(FONT_DISP, FONT_TITLE, x - 2, y + 58, x1 - x, gm->title, argb(C_WHITE, k));
+  d_label(x, y, gm->type[0] ? gm->type : "Game", argb(C_LAMP, 1));
+  d_text_fit(FONT_DISP, FONT_TITLE, x - 2, y + 58, x1 - x, gm->title, argb(C_WHITE, 1));
   y += 96;
   if (gm->desc[0])
     y = para(x, y, x1 - x, gm->desc, 3);
@@ -156,12 +158,15 @@ void hub_draw(void) {
 
   static const char *const hints[] = {SYM_CROSS, "Play", SYM_CIRCLE, "Back", 0};
   hints_draw(hints);
+  ui_fade = 1;
   status_draw();
 }
 
 void hub_input(void) {
+  if (leaving)
+    return;
   if (pad_pressed & MX_PAD_CIRCLE)
-    screen = SCR_HOME, hub_game = -1;
+    leaving = 1;
   if (pad_pressed & MX_PAD_CROSS)
     screen = SCR_LAUNCH, hub_game = -1;
 }

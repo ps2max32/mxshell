@@ -66,6 +66,8 @@ void d_rect_h(float x0, float y0, float x1, float y1, u32 left, u32 right);
    lights and shadows, then room_draw first in the frame. room_col gives
    its colour at a point (the reflections mix with it). */
 void room_begin(float floor_y);
+/* how much of the floor shows, 1 .. 0 (room_begin: 1): a screen without one coming in */
+void room_floor(float k);
 void room_light(float cx, float cy, float rx, float ry, float a);
 void room_shadow(float cx, float cy, float rx, float ry, float a);
 void room_draw(void);
@@ -180,6 +182,9 @@ void home_draw(void);
 void home_input(void);
 void home_enter(void);
 void home_focus_rect(float r[4]);
+/* Home with the game's hub k (0 .. 1) of the way in: the lit tile on its
+   way to slab, the rest fading (hub.c) */
+void home_scene(float k, const struct tile_look *slab);
 u32 home_focus_colour(void);
 void hub_draw(void);
 void hub_input(void);
@@ -200,8 +205,12 @@ void status_draw(void);
 /* hints at the bottom right: pairs of symbol, label; NULL ends */
 void hints_draw(const char *const *pairs);
 
+/* a screen fading in or out: 1 .. 0 for all of the 2D layer drawn with it
+   (text and lines through argb, the rounded shapes mixed with what is
+   under them) */
+extern float ui_fade;
 static inline u32 argb(u32 rgb, float a) {
-  int v = (int)(a * 255.0f + 0.5f);
+  int v = (int)(a * ui_fade * 255.0f + 0.5f);
   v = v < 0 ? 0 : v > 255 ? 255 : v;
   return (u32)v << 24 | rgb;
 }

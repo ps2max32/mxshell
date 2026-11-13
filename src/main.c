@@ -10,6 +10,7 @@
      refl=a|b|c      (tests) the reflection's look
      aspect=4:3|16:9 the television's shape in the SD modes
      deflicker=on|off the flicker filter in NTSC and PAL
+     hubk=<percent>  (tests) with screen=hub: the way in held there
      pick=<n>        (tests) with screen=settings: row n of the first page chosen
      room=vu         (tests) the room's lights on VU1 (room.vsm), not the EE
      stats           (tests) libgl's counters
@@ -294,7 +295,10 @@ int main(int argc, char **argv) {
       note = 1;
     else if (!strcmp(a, "dev=hostonly"))
       cfg_set("dev.host", "1"), cfg_set("dev.usb", "0"), cfg_set("dev.hdd", "0");
-    else if (!strcmp(a, "screen=hub"))
+    else if (!strncmp(a, "hubk=", 5)) {
+      extern float hub_pin;
+      hub_pin = (float)atoi(a + 5) / 100;
+    } else if (!strcmp(a, "screen=hub"))
       start = SCR_HUB;
     else if (!strcmp(a, "screen=settings"))
       start = SCR_SETTINGS;

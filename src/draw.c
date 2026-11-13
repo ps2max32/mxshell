@@ -47,9 +47,11 @@ static struct {
   u32 rgb;
 } lights[MAX_LIGHTS];
 static int nlights;
-static float floor_y = -1;
+static float floor_y = -1, floor_k = 1;
+float ui_fade = 1;
 
-void room_begin(float fy) { nlights = 0, floor_y = fy; }
+void room_begin(float fy) { nlights = 0, floor_y = fy, floor_k = 1; }
+void room_floor(float k) { floor_k = k; }
 
 static void add(float cx, float cy, float rx, float ry, float a, u32 rgb) {
   if (nlights < MAX_LIGHTS) {
@@ -68,7 +70,7 @@ void room_col(float x, float y, float rgb[3]) {
     float k = clampf((y - floor_y) / (SCR_H - floor_y), 0, 1);
     k = k * k * (3 - 2 * k);
     float f = (C_FLOOR & 255);
-    b = f + (b - f) * k;
+    b += (f - b) * (1 - k) * floor_k;
   }
   rgb[0] = rgb[1] = rgb[2] = b;
   for (int i = 0; i < nlights; i++) {
@@ -202,7 +204,7 @@ void room_draw(void) {
     if (floor_y >= 0 && y >= floor_y) {
       float k = clampf((y - floor_y) / (SCR_H - floor_y), 0, 1);
       k = k * k * (3 - 2 * k);
-      base[j] = (float)(C_FLOOR & 255) + ((float)(C_INK & 255) - (float)(C_FLOOR & 255)) * k;
+      base[j] += ((float)(C_FLOOR & 255) - base[j]) * (1 - k) * floor_k;
     }
   }
   if (room_vu_on()) {
@@ -212,7 +214,7 @@ void room_draw(void) {
       modes[j] = GL_TRIANGLE_STRIP, firsts[j] = n, counts[j] = 2 * PTS;
       for (int i = 0; i < PTS; i++)
         for (int q = 0; q < 2; q++) {
-          u8 b = (u8)(base[j + q] + (j == line ? 10 : 0) + 0.5f);
+          u8 b = (u8)(base[j + q] + (j == line ? 10 * floor_k : 0) + 0.5f);
           spos[n][0] = SCR_W * i / NX, spos[n][1] = ys[j + q], spos[n][2] = 0;
           srgba[n][0] = srgba[n][1] = srgba[n][2] = b, srgba[n][3] = 255;
           n++;
@@ -254,13 +256,14 @@ void room_draw(void) {
     }
   }
   /* the floor's edge, a faint line: the strip below it, its own two rows */
+  int edge = (int)(10 * floor_k + 0.5f);
   if (line >= 0 && line + 1 < ny)
     for (int q = 0; q < 2; q++)
       for (int i = 0; i < PTS; i++) {
         int from = (line + q) * PTS + i, to = (ny + q) * PTS + i;
         pos[to][0] = pos[from][0], pos[to][1] = pos[from][1];
         for (int c = 0; c < 3; c++)
-          rgba[to][c] = (u8)(rgba[from][c] + 10 > 255 ? 255 : rgba[from][c] + 10);
+          rgba[to][c] = (u8)(rgba[from][c] + edge > 255 ? 255 : rgba[from][c] + edge);
         rgba[to][3] = 255;
       }
   int n = 0;
@@ -411,7 +414,24 @@ static int outline(float x0, float y0, float x1, float y1, float r, float *px, f
   return n;
 }
 
-static void put(float x, float y, const float rgb[3]) { room_vertex(x, y, rgb); }
+/* a shape's part of ui_fade: the last of it, and fast. A light pill half
+   way is a grey patch with no text to read on it, so text comes first and
+   goes last */
+static float shape_fade(void) {
+  float f = clampf((ui_fade - 0.6f) / 0.4f, 0, 1);
+  return f * f;
+}
+static void put(float x, float y, const float rgb[3]) {
+  if (ui_fade < 0.999f) {
+    /* fading: towards what is under it, still opaque */
+    float u[3], f = shape_fade();
+    under_at(x, y, u);
+    for (int i = 0; i < 3; i++)
+      u[i] += (rgb[i] - u[i]) * f;
+    room_vertex(x, y, u);
+  } else
+    room_vertex(x, y, rgb);
+}
 
 /* fill: the shape's colour, or (glass >= 0) what is under it lighter by
    glass; line: an outline of a pixel at that colour and alpha (0: none).
@@ -419,6 +439,10 @@ static void put(float x, float y, const float rgb[3]) { room_vertex(x, y, rgb); 
    line) inside the edge, the line on the edge, what is under it a pixel
    (half a pixel) outside: the GS's interpolation smooths the edge. */
 static void rrect(float x0, float y0, float x1, float y1, float r, u32 fill, float glass, u32 line) {
+  /* faded out: nothing (drawn in the room's colour it would cover what
+     is over the room there, a tile) */
+  if (ui_fade < 0.999f && shape_fade() < 0.004f)
+    return;
   x0 = snapx(x0), x1 = snapx(x1), y0 = snapy(y0), y1 = snapy(y1);
   if (r > (y1 - y0) * 0.5f)
     r = (y1 - y0) * 0.5f;

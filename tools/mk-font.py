@@ -67,14 +67,17 @@ def face(path, weight, px):
 
 def glyph(font, ch, wide):
     """the glyph made at square pixels, then wide times as wide"""
-    x0, y0, x1, y1 = font.getbbox(ch)
-    w, h = max(x1 - x0, 1), max(y1 - y0, 1)
+    # its box from the outline at 4x, rounded outwards to whole pixels: the
+    # box of the font at its own size is rounded to the nearest pixel, and
+    # a glyph that reached a little further lost its last row or column
     k = 4
-    big = Image.new("L", (w * k, h * k), 0)
     f2 = ImageFont.truetype(font.path, font.size * k)
     f2.set_variation_by_axes([font._weight])
-    bx0, by0, _, _ = f2.getbbox(ch)
-    ImageDraw.Draw(big).text((-bx0, -by0), ch, 255, font=f2)
+    bx0, by0, bx1, by1 = f2.getbbox(ch)
+    x0, y0 = bx0 // k, by0 // k
+    w, h = max(-(-bx1 // k) - x0, 1), max(-(-by1 // k) - y0, 1)
+    big = Image.new("L", (w * k, h * k), 0)
+    ImageDraw.Draw(big).text((-x0 * k, -y0 * k), ch, 255, font=f2)
     # not narrower than two texels (unless it was one): a stem a texel wide
     # (an l or an i, PAL at 16:9) falls between two texels when drawn
     # filtered, at half its strength, and the alpha test behind the text
