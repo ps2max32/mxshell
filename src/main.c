@@ -9,6 +9,8 @@
      walk            (tests) the focus a tile on every 20 frames, there and back
      refl=a|b|c      (tests) the reflection's look
      aspect=4:3|16:9 the television's shape in the SD modes
+     deflicker=on|off the flicker filter in NTSC and PAL
+     pick=<n>        (tests) with screen=settings: row n of the first page chosen
      room=vu         (tests) the room's lights on VU1 (room.vsm), not the EE
      stats           (tests) libgl's counters
      end=<frames>    (tests) the end marker after that many frames
@@ -161,8 +163,9 @@ static void launch(void) {
   int st = game_launch(g);
   /* libgl's memory again (if the game's memory is not back yet, a while
      later), then the mode as set */
-  for (int i = 0; mxgl_resume() == -1 && i < 50; i++)
-    mx_sleep_us(100000);
+  mxgl_resume();
+  for (int i = 0; mxgl_suspended() && i < 50; i++)
+    mx_sleep_us(100000), mxgl_resume();
   video_apply();
   pad_on = mx_pad_init() >= 0;
   games_textures();
@@ -242,7 +245,7 @@ static const char *switch_to;
 static u32 switch_every = 90;
 
 int main(int argc, char **argv) {
-  int shot = 0, right = 0, note = 0, start = SCR_BOOT, go = 0, stats = 0, end = 0, walk = 0;
+  int shot = 0, right = 0, note = 0, start = SCR_BOOT, go = 0, stats = 0, end = 0, walk = 0, pick = -1;
   cfg_load();
 #ifdef MX_BIOS_CALLS
   if (argc <= 1)
@@ -261,6 +264,8 @@ int main(int argc, char **argv) {
       cfg_set("video.mode", a + 5);
     else if (!strncmp(a, "aspect=", 7))
       cfg_set("video.aspect", a + 7);
+    else if (!strncmp(a, "deflicker=", 10))
+      cfg_set("video.deflicker", a + 10);
     else if (!strncmp(a, "switch=", 7))
       switch_to = a + 7;
     else if (!strncmp(a, "every=", 6))
@@ -271,7 +276,9 @@ int main(int argc, char **argv) {
     } else if (!strcmp(a, "room=vu")) {
       extern int room_on_vu;
       room_on_vu = 1;
-    } else if (!strcmp(a, "walk"))
+    } else if (!strncmp(a, "pick=", 5))
+      pick = atoi(a + 5);
+    else if (!strcmp(a, "walk"))
       walk = 1;
     else if (!strcmp(a, "stats"))
       stats = 1;
@@ -346,8 +353,13 @@ int main(int argc, char **argv) {
           home_input();
         }
         home_enter();
-        if (start == SCR_SETTINGS)
+        if (start == SCR_SETTINGS) {
           settings_enter();
+          if (pick >= 0) {
+            void settings_pick(int n);
+            settings_pick(pick);
+          }
+        }
         else if (start == SCR_DITHER)
           screen = SCR_DITHER;
         else

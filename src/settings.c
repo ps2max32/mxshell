@@ -73,7 +73,7 @@ static void ip_save(void) {
 /* ---- the items of each page ---- */
 static int nitems(void) {
   switch (page) {
-  case P_VIDEO: return VM_MODES + 4;
+  case P_VIDEO: return VM_MODES + 5;
   case P_NETWORK: return 4;
   case P_STORAGE: return NDEVS + 1;
   case P_PADS: return 2;
@@ -105,6 +105,13 @@ float scr_w = 1280, px_x = 1.5f, px_y = 1.5f;
    screen); HD is always 16:9 */
 static int sd_wide(void) { return !strcmp(cfg_get("video.aspect", "4:3"), "16:9"); }
 
+/* video.deflicker: in NTSC and PAL, a softer picture against flicker
+   (libgl's mxgl_deflicker: the PS2's two read circuits a line apart,
+   blended). It needs full-height buffers, so those modes are then drawn
+   without beam racing (16-bit colour); off, beam racing draws every line of
+   the picture, for the television's deinterlacer */
+static int deflicker(void) { return !strcmp(cfg_get("video.deflicker", "off"), "on"); }
+
 static int video_choice(void) {
   const char *v = cfg_get("video.mode", "1080i");
   for (int i = 0; i < VM_MODES; i++)
@@ -118,10 +125,12 @@ static int video_choice(void) {
    video.depth (32: 24-bit colour where it fits, 16: dithered) */
 void video_apply(void) {
   int m = video_choice();
-  int flags = cfg_get("video.beam", "1")[0] == '1' ? MXGL_BEAM : 0;
+  int laced = m == VM_NTSC || m == VM_PAL, soft = laced && deflicker();
+  int flags = cfg_get("video.beam", "1")[0] == '1' && !soft ? MXGL_BEAM : 0;
   if (flags && cfg_get("video.depth", "32")[0] == '3')
     flags |= MXGL_RGB24;
   mxgl_set_mode(vmodes[m].gl | flags);
+  mxgl_deflicker(soft);
   /* libgl falls back to the console's own mode for one it cannot set */
   int got = mxgl_mode();
   video_mode = m;
@@ -178,6 +187,9 @@ static void video_revert(void) {
   video_apply();
 }
 
+/* tests: in the page, row n chosen */
+void settings_pick(int n) { in_page = 1, item = n; }
+
 void settings_enter(void) {
   screen = SCR_SETTINGS;
   in_page = 0, item = 0, edit = 0;
@@ -186,41 +198,50 @@ void settings_enter(void) {
 }
 
 /* the rows of a page, as in the mockups: label left, value right, a line
-   under each; the chosen one lit */
+   under each; the chosen one lit. y is the text's baseline; the row is
+   pitch high about the middle of its text (text_mid), its line at the
+   bottom, and the chosen one's light fills it from the line above (its
+   lamp line over that one) to its own */
 #define ROW 54.0f
+static float pitch = ROW;
 static void line(float x0, float x1, float y, const char *label, const char *value, int chosen, int on) {
+  float mid = y - text_mid(FONT_BODY), top = mid - pitch * 0.5f, bottom = mid + pitch * 0.5f;
   if (chosen) {
-    d_rect(x0 - 18, y - 34, x1 + 18, y + 18, argb(C_WHITE, 0.07f), argb(C_WHITE, 0.03f));
-    d_rect(x0 - 18, y - 34, x1 + 18, y - 33, argb(C_LAMP, 0.5f), argb(C_LAMP, 0.5f));
+    d_rect(x0 - 18, top, x1 + 18, bottom, argb(C_WHITE, 0.07f), argb(C_WHITE, 0.03f));
+    d_rect(x0 - 18, top, x1 + 18, top + 1, argb(C_LAMP, 0.5f), argb(C_LAMP, 0.5f));
   }
   float lw = d_text(FONT_BODY, x0, y, label, argb(on ? C_WHITE : C_FAINT, 1)) - x0;
   if (value)
     d_text_fit(FONT_BODY, FONT_SMALL, x1 - fminf(d_text_w(FONT_BODY, value), x1 - x0 - lw - 24), y,
                x1 - x0 - lw - 24, value, argb(chosen ? C_WHITE : C_DIM, 1));
-  d_rect(x0, y + 18, x1, y + 19, argb(C_WHITE, 0.08f), argb(C_WHITE, 0.08f));
+  d_rect(x0, bottom, x1, bottom + 1, argb(C_WHITE, 0.08f), argb(C_WHITE, 0.08f));
 }
 
 static void note(float x, float y, const char *s) { d_text(FONT_SMALL, x, y, s, argb(C_FAINT, 1)); }
 
 static void page_video(float x0, float x1, float y) {
   int c = video_choice();
-  /* nine modes and four settings: closer rows */
-  const float row = 32;
+  /* nine modes and five settings: closer rows */
+  const float row = 30;
   for (int i = 0; i < VM_MODES; i++) {
     float yy = y + row * i;
     int chosen = in_page && item == i;
     if (chosen)
-      d_rect(x0 - 18, yy - 25, x1 + 18, yy + 10, argb(C_WHITE, 0.07f), argb(C_WHITE, 0.03f));
+      d_rect(x0 - 18, yy - text_mid(FONT_BODY) - row * 0.5f, x1 + 18, yy - text_mid(FONT_BODY) + row * 0.5f,
+             argb(C_WHITE, 0.07f), argb(C_WHITE, 0.03f));
     d_text(FONT_BODY, x0, yy, vmodes[i].name, argb(i == c ? C_WHITE : C_DIM, 1));
     if (i == c)
       d_text(FONT_BODY, x1 - d_text_w(FONT_BODY, "On"), yy, "On", argb(C_LAMP, 1));
   }
   int deep = cfg_get("video.depth", "32")[0] == '3';
   float yy = y + row * VM_MODES + 8;
+  pitch = 40;
   line(x0, x1, yy, "Colour", deep ? "32-bit where it fits" : "16-bit", in_page && item == VM_MODES, 1);
-  line(x0, x1, yy + 42, "Dithering (16-bit colour)", dither_name(dither_choice()), in_page && item == VM_MODES + 1, 1);
-  line(x0, x1, yy + 84, "Dithering test picture", 0, in_page && item == VM_MODES + 2, 1);
-  line(x0, x1, yy + 126, "Television (SD modes)", sd_wide() ? "16:9" : "4:3", in_page && item == VM_MODES + 3, 1);
+  line(x0, x1, yy + 40, "Dithering (16-bit colour)", dither_name(dither_choice()), in_page && item == VM_MODES + 1, 1);
+  line(x0, x1, yy + 80, "Dithering test picture", 0, in_page && item == VM_MODES + 2, 1);
+  line(x0, x1, yy + 120, "Television (SD modes)", sd_wide() ? "16:9" : "4:3", in_page && item == VM_MODES + 3, 1);
+  line(x0, x1, yy + 160, "Flicker filter (NTSC, PAL)", deflicker() ? "On" : "Off", in_page && item == VM_MODES + 4, 1);
+  pitch = ROW;
 }
 
 static void page_network(float x0, float x1, float y) {
@@ -421,6 +442,10 @@ void settings_input(void) {
       screen = SCR_DITHER;
     else if (item == VM_MODES + 3) {
       cfg_set("video.aspect", sd_wide() ? "4:3" : "16:9");
+      cfg_save();
+      video_apply();
+    } else if (item == VM_MODES + 4) {
+      cfg_set("video.deflicker", deflicker() ? "off" : "on");
       cfg_save();
       video_apply();
     }
