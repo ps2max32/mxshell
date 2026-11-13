@@ -1,46 +1,47 @@
-# MXSHELL2: the font atlases (font/font_<shape>.bin, tools/mk-font.py) in the ELF
+# MXSHELL2: the font atlases (font/font_<shape>.z, zlib, tools/mk-font.py) in the ELF;
+# font_<shape>_z to font_<shape>_z_end
 	.section .rodata
-	.balign 64
-	.globl font_hd_bin
-font_hd_bin:
-	.incbin "font_hd.bin"
-	.balign 64
-	.globl font_hd540_bin
-font_hd540_bin:
-	.incbin "font_hd540.bin"
-	.balign 64
-	.globl font_p720_bin
-font_p720_bin:
-	.incbin "font_p720.bin"
-	.balign 64
-	.globl font_p576_bin
-font_p576_bin:
-	.incbin "font_p576.bin"
-	.balign 64
-	.globl font_p480_bin
-font_p480_bin:
-	.incbin "font_p480.bin"
-	.balign 64
-	.globl font_ntsc_bin
-font_ntsc_bin:
-	.incbin "font_ntsc.bin"
-	.balign 64
-	.globl font_pal_bin
-font_pal_bin:
-	.incbin "font_pal.bin"
-	.balign 64
-	.globl font_p576w_bin
-font_p576w_bin:
-	.incbin "font_p576w.bin"
-	.balign 64
-	.globl font_p480w_bin
-font_p480w_bin:
-	.incbin "font_p480w.bin"
-	.balign 64
-	.globl font_ntscw_bin
-font_ntscw_bin:
-	.incbin "font_ntscw.bin"
-	.balign 64
-	.globl font_palw_bin
-font_palw_bin:
-	.incbin "font_palw.bin"
+	.globl font_hd_z, font_hd_z_end
+font_hd_z:
+	.incbin "font_hd.z"
+font_hd_z_end:
+	.globl font_hd540_z, font_hd540_z_end
+font_hd540_z:
+	.incbin "font_hd540.z"
+font_hd540_z_end:
+	.globl font_p720_z, font_p720_z_end
+font_p720_z:
+	.incbin "font_p720.z"
+font_p720_z_end:
+	.globl font_p576_z, font_p576_z_end
+font_p576_z:
+	.incbin "font_p576.z"
+font_p576_z_end:
+	.globl font_p480_z, font_p480_z_end
+font_p480_z:
+	.incbin "font_p480.z"
+font_p480_z_end:
+	.globl font_ntsc_z, font_ntsc_z_end
+font_ntsc_z:
+	.incbin "font_ntsc.z"
+font_ntsc_z_end:
+	.globl font_pal_z, font_pal_z_end
+font_pal_z:
+	.incbin "font_pal.z"
+font_pal_z_end:
+	.globl font_p576w_z, font_p576w_z_end
+font_p576w_z:
+	.incbin "font_p576w.z"
+font_p576w_z_end:
+	.globl font_p480w_z, font_p480w_z_end
+font_p480w_z:
+	.incbin "font_p480w.z"
+font_p480w_z_end:
+	.globl font_ntscw_z, font_ntscw_z_end
+font_ntscw_z:
+	.incbin "font_ntscw.z"
+font_ntscw_z_end:
+	.globl font_palw_z, font_palw_z_end
+font_palw_z:
+	.incbin "font_palw.z"
+font_palw_z_end:

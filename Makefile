@@ -6,7 +6,7 @@
 #                        pictures on PCSX2 (-elf; no games are started)
 #   make shot            that ELF on PCSX2 with the games of
 #                        build/pcsx2-test/PS2MAX: host:mxshell2.tga
-#   make font            font/font_<mode>.bin and font/font.h again from
+#   make font            font/font_<mode>.z and font/font.h again from
 #                        font/src (Inter Tight, JetBrains Mono)
 
 HERE     := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
@@ -35,13 +35,20 @@ SCFLAGS   = $(filter-out -ffreestanding,$(CFLAGS)) -MMD -nostdlibinc -isystem $(
             -I$(MXGL_INC) -ffast-math -cl-single-precision-constant
 
 SRCS = main draw font tile games home hub settings settings_store toast dither
-OBJS = $(SRCS:%=$(OUT)/obj/%.o) $(OUT)/obj/font_bin.o
+# zlib's inflate (libs/zlib), for the font atlases
+ZLIB   ?= $(PS2MAX)/libs/zlib
+ZSRCS   = inflate inftrees inffast zutil adler32 uncompr
+OBJS = $(SRCS:%=$(OUT)/obj/%.o) $(OUT)/obj/font_bin.o $(ZSRCS:%=$(OUT)/obj/zlib/%.o)
+
+$(OUT)/obj/zlib/%.o: $(ZLIB)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(SCFLAGS) -DNO_GZIP -w -c $< -o $@
 
 $(OUT)/obj/%.o: $(HERE)/src/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(SCFLAGS) -c $< -o $@
+	$(CC) $(SCFLAGS) -I$(ZLIB) -c $< -o $@
 
-$(OUT)/obj/font_bin.o: $(HERE)/src/font_bin.S $(wildcard $(HERE)/font/font_*.bin)
+$(OUT)/obj/font_bin.o: $(HERE)/src/font_bin.S $(wildcard $(HERE)/font/font_*.z)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Wa,-I$(HERE)/font -I$(HERE)/font -c $< -o $@
 

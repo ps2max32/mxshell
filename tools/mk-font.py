@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MXSHELL2's font atlases: font/font_<mode>.bin and font/font.h, from the
+"""MXSHELL2's font atlases: font/font_<mode>.z and font/font.h, from the
 fonts in font/src (Inter Tight and JetBrains Mono, both SIL Open Font
 License).
 
@@ -12,7 +12,7 @@ One atlas per video mode, its glyphs made for that mode's pixels and drawn
         the glyphs are made 1.07 times as wide as at square pixels
   pal   640 x 512 on a 4:3 screen: a pixel 0.94 times as tall as wide: the
         glyphs 0.94 times as wide
-Each .bin is W x H texels of 4 bits (two a byte, the left one in the low
+Each .z is (zlib) W x H texels of 4 bits (two a byte, the left one in the low
 bits): the coverage 0..15; the shell gives it a palette of white at that
 alpha. font.h has where each glyph is, and its metrics, in that mode's
 pixels.
@@ -31,6 +31,7 @@ triangle as outlines; 5 is the middle dot.
 """
 import os
 import sys
+import zlib
 from PIL import Image, ImageDraw, ImageFont
 
 FACES = [("LABEL", "mono", 500), ("SMALL", "sans", 400), ("BODY", "sans", 400), ("BUTTON", "sans", 500),
@@ -74,7 +75,11 @@ def glyph(font, ch, wide):
     f2.set_variation_by_axes([font._weight])
     bx0, by0, _, _ = f2.getbbox(ch)
     ImageDraw.Draw(big).text((-bx0, -by0), ch, 255, font=f2)
-    nw = max(1, round(w * wide))
+    # not narrower than two texels (unless it was one): a stem a texel wide
+    # (an l or an i, PAL at 16:9) falls between two texels when drawn
+    # filtered, at half its strength, and the alpha test behind the text
+    # leaves it out
+    nw = max(min(w, 2), round(w * wide))
     im = big.resize((nw, h), Image.LANCZOS)
     return im, round(x0 * wide), y0, round(font.getlength(ch) * wide)
 
@@ -134,7 +139,9 @@ def build(mode, paths, out, hfile):
         atlas.paste(sizes[si][4][c][0], (px, py))
     q = bytes((v * 15 + 127) // 255 for v in atlas.tobytes())
     packed = bytes(q[i] | q[i + 1] << 4 for i in range(0, len(q), 2))
-    open(os.path.join(out, f"font_{mode}.bin"), "wb").write(packed)
+    # zlib: the atlases are mostly empty (1.3 MB in all, 0.33 MB packed); the
+    # shell unpacks the one of its mode
+    open(os.path.join(out, f"font_{mode}.z"), "wb").write(zlib.compress(packed, 9))
 
     M = mode.upper()
     hfile.write(f"#define FONT_{M}_W {W}\n#define FONT_{M}_H {h}\n")
@@ -150,7 +157,7 @@ def build(mode, paths, out, hfile):
                 hfile.write("    {0, 0, 0, 0, 0, 0, 0},\n")
         hfile.write("  }},\n")
     hfile.write("};\n\n")
-    print(f"font_{mode}.bin: {W} x {h}, 4 bits")
+    print(f"font_{mode}.z: {W} x {h}, 4 bits")
 
 
 def main():
@@ -159,7 +166,7 @@ def main():
              "mono": os.path.join(src, "JetBrainsMono-Variable.ttf")}
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(out, "font.h"), "w") as f:
-        f.write("/* made by tools/mk-font.py: the glyphs of font_<mode>.bin (Inter Tight, JetBrains Mono: SIL OFL) */\n")
+        f.write("/* made by tools/mk-font.py: the glyphs of font_<mode>.z (Inter Tight, JetBrains Mono: SIL OFL) */\n")
         f.write("#ifndef FONT_H\n#define FONT_H\n\n")
         f.write("#define FONT_FIRST 1\n#define FONT_LAST 126\n\n")
         f.write("struct glyph { unsigned short x, y; unsigned char w, h; signed char ox, oy; unsigned char adv; };\n")

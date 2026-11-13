@@ -37,7 +37,7 @@ make standalone   # build/apps/mxshell2-sa/mxshell2.elf: libmx, for pictures on 
 make shot         # that ELF on PCSX2 (RUNNER=...) with build/pcsx2-test/PS2MAX: host:mxshell2.tga
                   # (ARGS="screen=hub", "screen=settings", "note", "right=<n>", "rgb16")
 make fakegame     # tests/fakegame.c: a stand-in game that ends with the status it is given
-make font         # font/font_<shape>.bin and font.h from font/src
+make font         # font/font_<shape>.z and font.h from font/src
 make usbcopy      # tools/usbcopy.c: files to and from the USB stick through the host link
 ```
 
@@ -68,8 +68,9 @@ Layout is in units that are square on the screen: 720 high, 1280 wide at 16:9 (1
 pixels a unit) and 960 wide at 4:3 (NTSC and PAL, whose pixels are not square: each axis has
 its own scale). The SD modes (NTSC, PAL, 480p, 576p) can be 16:9 too (Settings › Video ›
 Television, `video.aspect`): anamorphic, 1280 units across the same 640 pixels. Text comes from
-an atlas per shape of pixel (`font/font_hd.bin`, `font_ntsc.bin`, `font_ntscw.bin` for NTSC at
-16:9, ...), its glyphs made for those pixels and drawn 1:1, filtered bilinearly (beam racing
+an atlas per shape of pixel (`font/font_hd.z`, `font_ntsc.z`, `font_ntscw.z` for NTSC at
+16:9, ...; zlib, 1.3 MB in all packed to 0.33 MB, the mode's one unpacked when it is set), its
+glyphs made for those pixels and drawn 1:1, filtered bilinearly (beam racing
 draws the two fields half a line apart). Interlaced SD keeps its full vertical resolution:
 each field draws its own lines of the same picture, for the television's deinterlacer to
 weave; a softer picture against flicker is for a setting (libgl's deflicker, to come).

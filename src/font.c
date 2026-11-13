@@ -1,4 +1,4 @@
-/* MXSHELL2: text from the font atlas of the video mode (font/font_<mode>.bin,
+/* MXSHELL2: text from the font atlas of the video mode (font/font_<mode>.z,
    made by tools/mk-font.py): 4-bit coverage with a palette of white at that
    alpha, one texture. The glyphs are made for the mode's pixels (NTSC and
    PAL with their pixels that are not square); each is placed on the pixel
@@ -11,35 +11,41 @@
 #include <GL/gl.h>
 #include <GL/glext.h>
 #include <stdlib.h>
+#include <mx/debug.h>
 #include <string.h>
+#include <zlib.h>
 
 #include "pn.h"
 
-extern const unsigned char font_hd_bin[], font_hd540_bin[], font_p720_bin[], font_p576_bin[], font_p480_bin[],
-    font_ntsc_bin[], font_pal_bin[], font_p576w_bin[], font_p480w_bin[], font_ntscw_bin[], font_palw_bin[];
+#define Z(n) extern const unsigned char font_##n##_z[], font_##n##_z_end[];
+Z(hd)
+Z(hd540)
+Z(p720)
+Z(p576)
+Z(p480)
+Z(ntsc)
+Z(pal)
+Z(p576w)
+Z(p480w)
+Z(ntscw)
+Z(palw)
+#undef Z
 static const struct {
-  const unsigned char *bin;
+  const unsigned char *z, *z_end; /* zlib */
   const struct font *set;
   int w, h;
 } atlases[] = {
-    [SHAPE_HD] = {font_hd_bin, fonts_hd, FONT_HD_W, FONT_HD_H},
-    [SHAPE_HD540] = {font_hd540_bin, fonts_hd540, FONT_HD540_W, FONT_HD540_H},
-    [SHAPE_P720] = {font_p720_bin, fonts_p720, FONT_P720_W, FONT_P720_H},
-    [SHAPE_P576] = {font_p576_bin, fonts_p576, FONT_P576_W, FONT_P576_H},
-    [SHAPE_P480] = {font_p480_bin, fonts_p480, FONT_P480_W, FONT_P480_H},
-    [SHAPE_NTSC] = {font_ntsc_bin, fonts_ntsc, FONT_NTSC_W, FONT_NTSC_H},
-    [SHAPE_PAL] = {font_pal_bin, fonts_pal, FONT_PAL_W, FONT_PAL_H},
-    [SHAPE_P576W] = {font_p576w_bin, fonts_p576w, FONT_P576W_W, FONT_P576W_H},
-    [SHAPE_P480W] = {font_p480w_bin, fonts_p480w, FONT_P480W_W, FONT_P480W_H},
-    [SHAPE_NTSCW] = {font_ntscw_bin, fonts_ntscw, FONT_NTSCW_W, FONT_NTSCW_H},
-    [SHAPE_PALW] = {font_palw_bin, fonts_palw, FONT_PALW_W, FONT_PALW_H},
+#define A(S, n, N) [SHAPE_##S] = {font_##n##_z, font_##n##_z_end, fonts_##n, FONT_##N##_W, FONT_##N##_H}
+    A(HD, hd, HD), A(HD540, hd540, HD540), A(P720, p720, P720), A(P576, p576, P576), A(P480, p480, P480),
+    A(NTSC, ntsc, NTSC), A(PAL, pal, PAL), A(P576W, p576w, P576W), A(P480W, p480w, P480W),
+    A(NTSCW, ntscw, NTSCW), A(PALW, palw, PALW),
+#undef A
 };
 static GLuint font_tex;
 static const struct font *fset = fonts_hd;
 static int tex_w = FONT_HD_W, tex_h = FONT_HD_H;
 
 void text_init(void) {
-  const u8 *bin = atlases[video_shape].bin;
   fset = atlases[video_shape].set, tex_w = atlases[video_shape].w, tex_h = atlases[video_shape].h;
   u32 n = (u32)(tex_w * tex_h / 2);
   u8 *buf = malloc(64 + n);
@@ -47,10 +53,18 @@ void text_init(void) {
     return;
   for (int i = 0; i < 16; i++)
     buf[4 * i] = buf[4 * i + 1] = buf[4 * i + 2] = 255, buf[4 * i + 3] = (u8)(i * 17);
+  /* the mode's atlas, unpacked (zlib) */
+  uLongf got = n;
+  if (uncompress(buf + 64, &got, atlases[video_shape].z,
+                 (uLong)(atlases[video_shape].z_end - atlases[video_shape].z)) != Z_OK || got != n) {
+    mx_printf("mxshell2: the font of shape %d does not unpack\n", video_shape);
+    free(buf);
+    return;
+  }
   /* the file has the left texel in the low bits; GL's 4-bit palette
      texture wants it in the high ones */
   for (u32 i = 0; i < n; i++)
-    buf[64 + i] = (u8)(bin[i] << 4 | bin[i] >> 4);
+    buf[64 + i] = (u8)(buf[64 + i] << 4 | buf[64 + i] >> 4);
   if (!font_tex)
     glGenTextures(1, &font_tex);
   glBindTexture(GL_TEXTURE_2D, font_tex);
