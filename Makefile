@@ -18,8 +18,13 @@ OUT      ?= $(PS2MAX)/build/apps/mxshell2$(if $(filter standalone,$(MX_TARGET)),
 
 all: $(OUT)/MXOS/MXSHELL2.ELF
 
-# maxsdk's shared build (build/libs/maxsdk); a copy built for size, as
-# mxshell's, is for later (PLAN.md A6)
+# its own maxsdk, built with a section per function and variable (and
+# libgl and the shell the same), for the linker to leave out what is not
+# used: 1.05 to 0.89 MB, the shell stays in memory beside a game. At -O2:
+# maxsdk at -Os saves 65 KB more but Home's frames come late more often, all
+# at -Os (0.72 MB) drops Home to 54 fps while the focus moves
+MAXSDK_OUT ?= $(OUT)/maxsdk
+export EXTRA_CFLAGS = -ffunction-sections -fdata-sections
 # room.vsm: the room's lights on VU1, by hand (libgl's MXGL_VSM_PROGS)
 MXGL_VSM_DIR   := $(HERE)/src
 MXGL_VSM_PROGS := room
@@ -31,6 +36,9 @@ MX_CORE_OBJS = $(MXGL_OBJS)
 PICOLIBC ?= $(PS2MAX)/build/libs/picolibc/install
 LIBC_LIBS = $(MAXSDK_OUT)/libc/glue.c.o $(MAXSDK_OUT)/libmxc.a $(PICOLIBC)/lib/libc.a \
             $(MX_LIB) $(MAXSDK_OUT)/librt.a
+# maxsdk's libc parts in our own MAXSDK_OUT (maxsdk.mk makes only the library)
+$(MAXSDK_OUT)/libc/glue.c.o $(MAXSDK_OUT)/libmxc.a $(MAXSDK_OUT)/librt.a &: $(MX_LIB)
+	$(MAKE) -C $(MAXSDK) OUT=$(MAXSDK_OUT) libc
 SCFLAGS   = $(filter-out -ffreestanding,$(CFLAGS)) -MMD -nostdlibinc -isystem $(PICOLIBC)/include \
             -I$(MXGL_INC) -ffast-math -cl-single-precision-constant
 

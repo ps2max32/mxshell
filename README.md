@@ -31,6 +31,11 @@ nothing) until the kernel has a settings store.
 
 ## Build
 
+The shell builds its own maxsdk (in its output directory) with a section per function and
+variable, and libgl and itself the same, so the linker leaves out what is not used: the ELF is
+0.89 MB (it stays in memory beside a game). `-Os` would make it smaller but slower: Home then
+misses frames while the focus moves.
+
 ```
 make              # build/apps/mxshell2/MXOS/MXSHELL2.ELF: an MXOS program (libmxk)
 make standalone   # build/apps/mxshell2-sa/mxshell2.elf: libmx, for pictures on PCSX2
