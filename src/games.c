@@ -7,6 +7,7 @@
 #include <GL/gl.h>
 #include <GL/glext.h>
 #include <mx/iop.h>
+#include <mx/mem.h>
 #include <mx/loader.h>
 #include <mx/mx.h>
 #include <mx/sif.h>
@@ -32,7 +33,6 @@ static const char *const mods[NDEVS][4][2] = {
     {{0, 0}, {0, 0}, {0, 0}, {0, 0}},
 };
 
-static u8 irx[128 * 1024] MX_ALIGNED(64) MX_CORE_BSS; /* the IOP reads it by SIF DMA */
 
 static int load_module(const char *file, const char *name) {
   struct mx_iop_module m;
@@ -45,13 +45,23 @@ static int load_module(const char *file, const char *name) {
     mx_printf("mxshell2: %s: not there (%d)\n", path, fd);
     return -1;
   }
-  int n = mx_fio_read(fd, irx, sizeof irx), res = 0;
+  /* the IOP reads it by SIF DMA: pinned, and only while it is loaded (128
+     KiB of core the shell would keep beside a game) */
+  const u32 room = 128 * 1024;
+  u8 *irx = mx_dma_alloc(room);
+  if (!irx) {
+    mx_fio_close(fd);
+    return -1;
+  }
+  int n = mx_fio_read(fd, irx, room), res = 0;
   mx_fio_close(fd);
-  if (n <= 0 || n == (int)sizeof irx) {
+  if (n <= 0 || n == (int)room) {
     mx_printf("mxshell2: %s: read %d\n", path, n);
+    mx_dma_free(irx);
     return -1;
   }
   int id = mx_iop_load_module_buffer(irx, (u32)n, 0, 0, &res);
+  mx_dma_free(irx);
   mx_printf("mxshell2: %s: %d, %d\n", file, id, res);
   return id < 0 ? -1 : 0;
 }

@@ -22,6 +22,8 @@
 #include <mx/frame.h>
 #include <mx/loader.h>
 #include <mx/mx.h>
+#include <mx/vm.h>
+#include <mx/mem.h>
 #include <mx/pad.h>
 #include <mx/sif.h>
 #include <mx/thread.h>
@@ -151,6 +153,12 @@ static void launch(void) {
   /* without beam racing: its records and arenas (2 MiB) given back */
   mxgl_set_mode(MXGL_SD);
   mx_frame_stop();
+  /* what stays of the shell beside the game: its pinned frames (the
+     kernel's are counted too) */
+  struct mx_mem_pressure mp;
+  mx_mem_pressure(&mp);
+  mx_printf("mxshell2: launch %s: %u KB pinned, %u KB free\n", name, mp.pinned_frames * (MX_VM_PAGE / 1024),
+            mp.free_frames * (MX_VM_PAGE / 1024));
   int st = game_launch(g);
   video_apply();
   pad_on = mx_pad_init() >= 0;
