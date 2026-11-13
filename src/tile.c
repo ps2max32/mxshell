@@ -12,6 +12,7 @@
 #include <GL/gl.h>
 #include <math.h>
 
+#include "mxgl.h"
 #include "pn.h"
 
 #define D 1400.0f    /* the eye's distance (the mockups' CSS perspective) */
@@ -66,10 +67,10 @@ static void face_col(const struct tile_look *t, float u, float v, float out[3]) 
   float l = t->lit;
   for (int i = 0; i < 3; i++) {
     /* lit: a lighter top, the colour at 55 %, deep at the end; resting:
-       the colour to deep, at half brightness */
+       the colour to deep, at 68 % */
     float top = mixf(b[i], 255, 0.10f);
     float lit = g < 0.55f ? mixf(top, b[i], g / 0.55f) : mixf(b[i], deep[i], (g - 0.55f) / 0.45f);
-    float rest = mixf(b[i], deep[i], g) * 0.5f;
+    float rest = mixf(b[i], deep[i], g) * 0.68f;
     out[i] = mixf(rest, lit, l);
   }
   if (l > 0) {
@@ -86,6 +87,48 @@ static void face_col(const struct tile_look *t, float u, float v, float out[3]) 
    room's colour at its place on the screen, so 16-bit colour is dithered
    once (pn.h, the room) */
 static int textured;
+/* the tile's vertices, gathered and drawn as strips in one mxgl_MultiDraw
+   (glBegin and a call a vertex were most of a tile's time): a record per
+   vertex with its texture coordinates and colour in it, which libgl's
+   fast path reads as it is */
+struct tv {
+  float x, y, z, s, t;
+  u8 c[4];
+};
+#define TV_MAX 1024
+#define PRIM_MAX 64
+static struct tv tvs[TV_MAX];
+static int ntv, nprim, prim_first[PRIM_MAX], prim_count[PRIM_MAX];
+static unsigned prim_mode[PRIM_MAX];
+static float cur_s, cur_t;
+static void strip_begin(void) {
+  if (nprim < PRIM_MAX)
+    prim_mode[nprim] = GL_TRIANGLE_STRIP, prim_first[nprim] = ntv, prim_count[nprim] = 0;
+}
+static void strip_end(void) {
+  if (nprim < PRIM_MAX)
+    prim_count[nprim] = ntv - prim_first[nprim], nprim++;
+}
+/* the strips so far, with or without the texture bound */
+static void flush(void) {
+  if (nprim) {
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_COLOR_ARRAY);
+    glVertexPointer(3, GL_FLOAT, sizeof(struct tv), &tvs[0].x);
+    glColorPointer(4, GL_UNSIGNED_BYTE, sizeof(struct tv), tvs[0].c);
+    if (textured) {
+      glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+      glTexCoordPointer(2, GL_FLOAT, sizeof(struct tv), &tvs[0].s);
+    }
+    mxgl_MultiDraw(prim_mode, prim_first, prim_count, nprim);
+    if (textured)
+      glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+    glDisableClientState(GL_COLOR_ARRAY);
+    glDisableClientState(GL_VERTEX_ARRAY);
+  }
+  ntv = nprim = 0;
+}
+static void tex(float s, float t) { cur_s = s, cur_t = t; }
 static void vtx(struct v3 p, const float rgb[3], float a) {
   float c[3] = {rgb[0], rgb[1], rgb[2]};
   if (a < 0.999f && !textured) {
@@ -96,9 +139,12 @@ static void vtx(struct v3 p, const float rgb[3], float a) {
     a = 1;
   }
   int b = a >= 0.999f ? dither_bias : 0;
-  glColor4ub((GLubyte)clampf(c[0] + b, 0, 255), (GLubyte)clampf(c[1] + b, 0, 255), (GLubyte)clampf(c[2] + b, 0, 255),
-             (GLubyte)clampf(a * 255, 0, 255));
-  glVertex3f(p.x, p.y, p.z);
+  if (ntv >= TV_MAX)
+    return;
+  struct tv *v = &tvs[ntv++];
+  v->x = p.x, v->y = p.y, v->z = p.z, v->s = cur_s, v->t = cur_t;
+  v->c[0] = (u8)clampf(c[0] + b, 0, 255), v->c[1] = (u8)clampf(c[1] + b, 0, 255), v->c[2] = (u8)clampf(c[2] + b, 0, 255);
+  v->c[3] = (u8)clampf(a * 255, 0, 255);
 }
 
 /* the rows of the rounded outline: v of each, and the inset of the face's
@@ -131,10 +177,11 @@ void d_tile(const struct tile_look *t) {
     face_col(t, su, 0, e0), face_col(t, su, 1, e1);
     for (int i = 0; i < 3; i++)
       e0[i] *= 0.55f, e1[i] *= 0.4f;
-    glBegin(GL_QUADS);
+    strip_begin();
     vtx(at(t, su, RADIUS / t->h, 0, c, s), e0, a), vtx(at(t, su, RADIUS / t->h, THICK, c, s), e0, a);
-    vtx(at(t, su, 1 - RADIUS / t->h, THICK, c, s), e1, a), vtx(at(t, su, 1 - RADIUS / t->h, 0, c, s), e1, a);
-    glEnd();
+    vtx(at(t, su, 1 - RADIUS / t->h, 0, c, s), e1, a), vtx(at(t, su, 1 - RADIUS / t->h, THICK, c, s), e1, a);
+    strip_end();
+    flush();
   }
 
   float vs[MAX_ROWS], ins[MAX_ROWS];
@@ -145,19 +192,19 @@ void d_tile(const struct tile_look *t) {
     textured = 1;
   }
   for (int r = 0; r + 1 < n; r++) {
-    glBegin(GL_TRIANGLE_STRIP);
+    strip_begin();
     for (int k = 0; k <= COLS; k++)
       for (int q = 0; q < 2; q++) {
         float v = vs[r + q], in = ins[r + q];
         float u = in + (1 - 2 * in) * k / COLS;
         float rgb[3];
         face_col(t, u, v, rgb);
-        if (t->tex)
-          glTexCoord2f(u * t->tex_u, v * t->tex_v);
+        tex(u * t->tex_u, v * t->tex_v);
         vtx(at(t, u, v, 0, c, s), rgb, a);
       }
-    glEnd();
+    strip_end();
   }
+  flush();
   if (t->tex)
     glDisable(GL_TEXTURE_2D);
   textured = 0;
@@ -187,7 +234,7 @@ void d_tile(const struct tile_look *t) {
        share a place: straight up there */
     nus[0] = 0, nvs[0] = -1, nus[m - 1] = 0, nvs[m - 1] = -1;
     for (int ring = 0; ring < 2; ring++) {
-      glBegin(GL_TRIANGLE_STRIP);
+      strip_begin();
       for (int i = 0; i <= m; i++) {
         int k = i % m;
         float rgb[3], edge[3];
@@ -207,14 +254,36 @@ void d_tile(const struct tile_look *t) {
           vtx(at(t, ou[k] + nus[k] * pu, ov[k] + nvs[k] * pv, 0, c, s), edge, 0);
         }
       }
-      glEnd();
+      strip_end();
     }
+    flush();
   }
 }
 
+/* the reflection's look: -1 the shell's; tests: refl=a|b|c, three to
+   compare, in the colour of the face above its deep foot (the foot's
+   near black makes the shell's look more a shadow than a reflection) */
+int refl_style = -1;
+
 void d_tile_reflection(const struct tile_look *t) {
   float c = cosf(t->turn * 0.0174533f), s = sinf(t->turn * 0.0174533f);
-  float top = (0.10f + 0.12f * t->lit) * t->fade, part = 0.32f;
+  float top, part, power;
+  int rows = 4;
+  switch (refl_style) {
+  default: /* the shell's */
+    top = 0.10f + 0.12f * t->lit, part = 0.32f, power = 2;
+    break;
+  case 0: /* a: clear, short */
+    top = 0.28f + 0.14f * t->lit, part = 0.32f, power = 2;
+    break;
+  case 1: /* b: a long gloss, fading slowly */
+    top = 0.20f + 0.12f * t->lit, part = 0.55f, power = 1, rows = 6;
+    break;
+  case 2: /* c: the lit one mirrored, the others faint */
+    top = 0.10f + 0.36f * t->lit, part = 0.40f, power = 1.5f;
+    break;
+  }
+  top *= t->fade;
   if (t->tex) {
     /* a cover: blended, the texture cannot be mixed in per vertex */
     glEnable(GL_TEXTURE_2D);
@@ -222,21 +291,21 @@ void d_tile_reflection(const struct tile_look *t) {
     textured = 1;
   }
   float fy = SCR_H / 2 - (t->y + t->h);
-  for (int r = 0; r < 4; r++) {
-    glBegin(GL_TRIANGLE_STRIP);
+  for (int r = 0; r < rows; r++) {
+    strip_begin();
     for (int k = 0; k <= COLS; k++)
       for (int q = 0; q < 2; q++) {
-        float f = (float)(r + q) / 4, v = 1 - f * part, u = (float)k / COLS;
+        float f = (float)(r + q) / rows, v = 1 - f * part, u = (float)k / COLS;
         float rgb[3];
-        face_col(t, u, v, rgb);
+        face_col(t, u, refl_style < 0 ? v : 0.35f, rgb);
         struct v3 p = at(t, u, v, 0, c, s);
         p.y = 2 * fy - p.y;
-        if (t->tex)
-          glTexCoord2f(u * t->tex_u, v * t->tex_v);
-        vtx(p, rgb, top * (1 - f) * (1 - f));
+        tex(u * t->tex_u, v * t->tex_v);
+        vtx(p, rgb, top * powf(1 - f, power));
       }
-    glEnd();
+    strip_end();
   }
+  flush();
   if (t->tex)
     glDisable(GL_TEXTURE_2D);
   textured = 0;

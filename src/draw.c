@@ -3,7 +3,9 @@
    (GL_ONE) so it brightens what is under it as a lamp would. */
 #include <GL/gl.h>
 #include <math.h>
+#include <string.h>
 
+#include "mxgl.h"
 #include "pn.h"
 
 float frame_dt = 1.0f / 60.0f;
@@ -105,24 +107,90 @@ void room_draw(void) {
     for (int i = 1; i <= 10; i++)
       ys[ny++] = floor_y + 92 + (SCR_H - floor_y - 92) * i / 10;
   }
-  const int nx = 64;
-  glDisable(GL_BLEND);
-  for (int j = 0; j + 1 < ny; j++) {
-    int line = floor_y >= 0 && ys[j] == floor_y;
-    glBegin(GL_TRIANGLE_STRIP);
-    for (int i = 0; i <= nx; i++) {
-      float x = SCR_W * i / nx;
-      for (int q = 0; q < 2; q++) {
-        float rgb[3];
-        room_col(x, ys[j + q], rgb);
-        if (line)
-          for (int c = 0; c < 3; c++)
-            rgb[c] += 10; /* the floor's edge, a faint line */
-        room_vertex(x, ys[j + q], rgb);
-      }
+  /* each point worked out once (a row is in two strips), a row only
+     against the lights that reach it, and the whole grid handed to libgl
+     as arrays: at 9 tiles' shadows this was most of Home's frame */
+  enum { NX = 64, PTS = NX + 1, ROWS = 64 + 2 };
+  static float pos[ROWS * PTS][2];
+  static u8 rgba[ROWS * PTS][4];
+  /* the strips one after the other (a row in two of them), drawn with
+     mxgl_MultiDraw: whole strips, without libgl's work for each triangle
+     of an index list (that was 5 ms a frame) */
+  static float spos[(ROWS - 1) * 2 * PTS][3]; /* x, y, 0 */
+  static u8 srgba[(ROWS - 1) * 2 * PTS][4];
+  static unsigned modes[ROWS];
+  static int firsts[ROWS], counts[ROWS];
+  int line = -1;
+  for (int j = 0; j < ny; j++) {
+    float y = ys[j];
+    if (floor_y >= 0 && y == floor_y)
+      line = j;
+    float base = (C_INK & 255);
+    if (floor_y >= 0 && y >= floor_y) {
+      float k = clampf((y - floor_y) / (SCR_H - floor_y), 0, 1);
+      k = k * k * (3 - 2 * k);
+      base = (float)(C_FLOOR & 255) + ((float)(C_INK & 255) - (float)(C_FLOOR & 255)) * k;
     }
-    glEnd();
+    /* the lights this row is in, with their part of r^2 */
+    int act[MAX_LIGHTS], na = 0;
+    float dy2[MAX_LIGHTS];
+    for (int l = 0; l < nlights; l++) {
+      float dy = (y - lights[l].cy) / lights[l].ry;
+      if (dy * dy < 1)
+        dy2[na] = dy * dy, act[na++] = l;
+    }
+    for (int i = 0; i < PTS; i++) {
+      float x = SCR_W * i / NX, rgb[3] = {base, base, base};
+      for (int m = 0; m < na; m++) {
+        int l = act[m];
+        float dx = (x - lights[l].cx) / lights[l].rx, r2 = dx * dx + dy2[m];
+        if (r2 >= 1)
+          continue;
+        float f = (1 - r2) * (1 - r2) * lights[l].a;
+        if (f < 0)
+          rgb[0] *= 1 + f, rgb[1] *= 1 + f, rgb[2] *= 1 + f;
+        else {
+          u32 c = lights[l].rgb;
+          rgb[0] += (c >> 16 & 255) * f, rgb[1] += (c >> 8 & 255) * f, rgb[2] += (c & 255) * f;
+        }
+      }
+      int v = j * PTS + i;
+      pos[v][0] = x, pos[v][1] = y;
+      for (int c = 0; c < 3; c++)
+        rgba[v][c] = bias((u32)clampf(rgb[c], 0, 250));
+      rgba[v][3] = 255;
+    }
   }
+  /* the floor's edge, a faint line: the strip below it, its own two rows */
+  if (line >= 0 && line + 1 < ny)
+    for (int q = 0; q < 2; q++)
+      for (int i = 0; i < PTS; i++) {
+        int from = (line + q) * PTS + i, to = (ny + q) * PTS + i;
+        pos[to][0] = pos[from][0], pos[to][1] = pos[from][1];
+        for (int c = 0; c < 3; c++)
+          rgba[to][c] = (u8)(rgba[from][c] + 10 > 255 ? 255 : rgba[from][c] + 10);
+        rgba[to][3] = 255;
+      }
+  int n = 0;
+  for (int j = 0; j + 1 < ny; j++) {
+    int a = j == line ? ny : j;
+    modes[j] = GL_TRIANGLE_STRIP, firsts[j] = n, counts[j] = 2 * PTS;
+    for (int i = 0; i < PTS; i++)
+      for (int q = 0; q < 2; q++) {
+        int v = (a + q) * PTS + i;
+        spos[n][0] = pos[v][0], spos[n][1] = pos[v][1], spos[n][2] = 0;
+        memcpy(srgba[n], rgba[v], 4);
+        n++;
+      }
+  }
+  glDisable(GL_BLEND);
+  glEnableClientState(GL_VERTEX_ARRAY);
+  glEnableClientState(GL_COLOR_ARRAY);
+  glVertexPointer(3, GL_FLOAT, 0, spos);
+  glColorPointer(4, GL_UNSIGNED_BYTE, 0, srgba);
+  mxgl_MultiDraw(modes, firsts, counts, ny - 1);
+  glDisableClientState(GL_COLOR_ARRAY);
+  glDisableClientState(GL_VERTEX_ARRAY);
   glEnable(GL_BLEND);
 }
 
@@ -232,12 +300,19 @@ static float snapy(float y) { return (float)(int)(y * px_y + 0.5f) / px_y; }
 static int outline(float x0, float y0, float x1, float y1, float r, float *px, float *py, float *nx, float *ny) {
   static const float cx_sign[4] = {1, -1, -1, 1}, cy_sign[4] = {1, 1, -1, -1};
   float ccx[4] = {x0 + r, x1 - r, x1 - r, x0 + r}, ccy[4] = {y0 + r, y0 + r, y1 - r, y1 - r};
+  /* the directions, once (sinf and cosf for every point of every shape
+     were a good part of a frame) */
+  static float cs[OUTLINE], sn[OUTLINE];
+  if (!cs[0])
+    for (int c = 0, k = 0; c < 4; c++)
+      for (int i = 0; i <= CSEG; i++, k++) {
+        float a = 3.1415926f + 1.5707963f * (c + (float)i / CSEG);
+        cs[k] = cosf(a), sn[k] = sinf(a);
+      }
   int n = 0;
   for (int c = 0; c < 4; c++)
     for (int i = 0; i <= CSEG; i++) {
-      float a = 3.1415926f + 1.5707963f * (c + (float)i / CSEG);
-      float cs = cosf(a), sn = sinf(a);
-      px[n] = ccx[c] + cs * r, py[n] = ccy[c] + sn * r, nx[n] = cs, ny[n] = sn;
+      px[n] = ccx[c] + cs[n] * r, py[n] = ccy[c] + sn[n] * r, nx[n] = cs[n], ny[n] = sn[n];
       n++;
     }
   (void)cx_sign, (void)cy_sign;

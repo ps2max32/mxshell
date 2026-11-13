@@ -44,8 +44,17 @@ make usbcopy      # tools/usbcopy.c: files to and from the USB stick through the
 Arguments (for tests): `dev=host`, `dev=hostonly`, `screen=home|hub|settings`, `right=<n>`,
 `note`, `launch` (start the game in focus at once), `mode=1080i|ntsc|pal|sd`, `rgb16`,
 `shot=<frames>` (the picture to
-`host:mxshell2.tga`, then the end marker). The standalone build reads them from
-`host:mxshell2.txt`.
+`host:mxshell2.tga`, then the end marker), `end=<frames>` (the end marker after that many
+frames), `stats` (libgl's counters on the screen and once a second in the log), `walk` (the
+focus a tile on every 20 frames, there and back: Home's busiest frames), `switch=<mode>,...`
+and `every=<frames>` (the modes one after the other), `refl=a|b|c` (three other looks of the
+reflections, to compare). The standalone build reads them from `host:mxshell2.txt`.
+
+Measured on a PS2 in 1080i (`stats walk`): Home, Hub and Settings keep 60 fps (50 in PAL),
+Home also while the focus moves, with about half a millisecond to spare then. The EE's work
+is the room (the grid's points worked out once a row, against the lights that reach it, and
+drawn as strips in one `mxgl_MultiDraw`), the tiles (their vertices as records, one
+`mxgl_MultiDraw` a part) and the 2D layer.
 
 To try the MXOS build on PCSX2, under the kernel built for it (`make -C apps/mxos emu`), with
 the program and the games in `build/pcsx2-test`: `MXLOAD="host:mxshell2k.elf dev=hostonly"` and

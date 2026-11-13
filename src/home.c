@@ -133,8 +133,8 @@ void home_draw(void) {
   /* the room: the floor, the cone of light from above, its pool on the
      floor, the tiles' shadows */
   room_begin(FLOOR_Y);
-  room_light(lxp, 0, 300, FLOOR_Y + 30, 0.12f);
-  room_light(lxp, FLOOR_Y + 2, 250, 34, 0.16f);
+  room_light(lxp, 0, 340, FLOOR_Y + 50, 0.28f);
+  room_light(lxp, FLOOR_Y + 2, 300, 44, 0.34f);
   for (int i = 0; i < n; i++) {
     layout(i, &t);
     if (t.fade > 0)

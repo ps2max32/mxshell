@@ -6,6 +6,11 @@
      dev=host        look for games on host: too (ps2client's directory)
      screen=hub|settings|boot   start on that screen
      right=<n>       the focus n tiles to the right
+     walk            (tests) the focus a tile on every 20 frames, there and back
+     refl=a|b|c      (tests) the reflection's look
+     stats           (tests) libgl's counters
+     end=<frames>    (tests) the end marker after that many frames
+     switch=<mode>,... every=<frames>   (tests) the modes one after the other
      note            a notification on the screen
      launch          start the game in focus at once (tests)
      shot=<frames>   the picture to host:mxshell2.tga after that many frames,
@@ -18,6 +23,7 @@
 #include <mx/pad.h>
 #include <mx/sif.h>
 #include <mx/thread.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "mxgl.h"
@@ -217,11 +223,13 @@ static int args_from_host(char ***argv) {
 }
 #endif
 
-/* tests: switch=<mode>[,<mode>...]: one after the other, 90 frames apart */
+/* tests: switch=<mode>[,<mode>...]: one after the other, every= frames
+   apart (90) */
 static const char *switch_to;
+static u32 switch_every = 90;
 
 int main(int argc, char **argv) {
-  int shot = 0, right = 0, note = 0, start = SCR_BOOT, go = 0;
+  int shot = 0, right = 0, note = 0, start = SCR_BOOT, go = 0, stats = 0, end = 0, walk = 0;
   cfg_load();
 #ifdef MX_BIOS_CALLS
   if (argc <= 1)
@@ -240,6 +248,17 @@ int main(int argc, char **argv) {
       cfg_set("video.mode", a + 5);
     else if (!strncmp(a, "switch=", 7))
       switch_to = a + 7;
+    else if (!strncmp(a, "every=", 6))
+      switch_every = (u32)atoi(a + 6);
+    else if (!strncmp(a, "refl=", 5)) {
+      extern int refl_style;
+      refl_style = a[5] - 'a';
+    } else if (!strcmp(a, "walk"))
+      walk = 1;
+    else if (!strcmp(a, "stats"))
+      stats = 1;
+    else if (!strncmp(a, "end=", 4))
+      end = atoi(a + 4);
     else if (!strcmp(a, "nobeam"))
       cfg_set("video.beam", "0");
     else if (!strcmp(a, "rgb16"))
@@ -263,7 +282,7 @@ int main(int argc, char **argv) {
   }
 
   mxgl_init();
-  mxgl_show_stats = 0;
+  mxgl_show_stats = stats;
   pad_on = mx_pad_init() >= 0;
   /* Start + Select held at power-on: the console's own SD mode, for a
      television that cannot show the one set */
@@ -323,6 +342,10 @@ int main(int argc, char **argv) {
     pads_watch();
     toast_step();
 
+    if (walk && screen == SCR_HOME && ticks % 20 == 0) {
+      /* there and back along the row: 8 steps one way, 8 the other */
+      pad_pressed = (ticks / 20) % 16 < 8 ? MX_PAD_RIGHT : MX_PAD_LEFT;
+    }
     switch (screen) {
     case SCR_HOME:
       home_input();
@@ -375,7 +398,7 @@ int main(int argc, char **argv) {
     mxgl_end_frame();
     mxgl_frame_done();
 
-    if (switch_to && *switch_to && ticks % 90 == 0) {
+    if (switch_to && *switch_to && switch_every && ticks % switch_every == 0) {
       char m[16];
       int n = 0;
       while (*switch_to && *switch_to != ',' && n < 15)
@@ -389,6 +412,10 @@ int main(int argc, char **argv) {
     }
     if (screen == SCR_LAUNCH && ticks - screen_at > 30)
       launch();
+    if (end && ticks == (u32)end) {
+      MX_TEST_END(0);
+      return 0;
+    }
     if (shot && ticks == (u32)shot) {
       int r = mxgl_screenshot("host:mxshell2.tga");
       mx_printf("mxshell2: shot %d\n", r);
