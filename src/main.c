@@ -8,6 +8,7 @@
      right=<n>       the focus n tiles to the right
      walk            (tests) the focus a tile on every 20 frames, there and back
      refl=a|b|c      (tests) the reflection's look
+     aspect=4:3|16:9 the television's shape in the SD modes
      room=vu         (tests) the room's lights on VU1 (room.vsm), not the EE
      stats           (tests) libgl's counters
      end=<frames>    (tests) the end marker after that many frames
@@ -247,6 +248,8 @@ int main(int argc, char **argv) {
       right = a[6] - '0';
     else if (!strncmp(a, "mode=", 5))
       cfg_set("video.mode", a + 5);
+    else if (!strncmp(a, "aspect=", 7))
+      cfg_set("video.aspect", a + 7);
     else if (!strncmp(a, "switch=", 7))
       switch_to = a + 7;
     else if (!strncmp(a, "every=", 6))

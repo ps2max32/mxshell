@@ -16,7 +16,7 @@
 #include "pn.h"
 
 extern const unsigned char font_hd_bin[], font_hd540_bin[], font_p720_bin[], font_p576_bin[], font_p480_bin[],
-    font_ntsc_bin[], font_pal_bin[];
+    font_ntsc_bin[], font_pal_bin[], font_p576w_bin[], font_p480w_bin[], font_ntscw_bin[], font_palw_bin[];
 static const struct {
   const unsigned char *bin;
   const struct font *set;
@@ -29,6 +29,10 @@ static const struct {
     [SHAPE_P480] = {font_p480_bin, fonts_p480, FONT_P480_W, FONT_P480_H},
     [SHAPE_NTSC] = {font_ntsc_bin, fonts_ntsc, FONT_NTSC_W, FONT_NTSC_H},
     [SHAPE_PAL] = {font_pal_bin, fonts_pal, FONT_PAL_W, FONT_PAL_H},
+    [SHAPE_P576W] = {font_p576w_bin, fonts_p576w, FONT_P576W_W, FONT_P576W_H},
+    [SHAPE_P480W] = {font_p480w_bin, fonts_p480w, FONT_P480W_W, FONT_P480W_H},
+    [SHAPE_NTSCW] = {font_ntscw_bin, fonts_ntscw, FONT_NTSCW_W, FONT_NTSCW_H},
+    [SHAPE_PALW] = {font_palw_bin, fonts_palw, FONT_PALW_W, FONT_PALW_H},
 };
 static GLuint font_tex;
 static const struct font *fset = fonts_hd;

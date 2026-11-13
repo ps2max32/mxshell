@@ -155,7 +155,9 @@ hand-written VSM on VU1 (`src/room.vsm`, `room=vu`) works (the same picture to a
 step) but costs more than it saves: beam racing plays the frame's stream once a strip, three
 times a field, so VU1's work counts three times and the GS passes took 7 ms instead of 2
 (passes came late). The EE keeps the light; VU1 waits for a pipelined program on fewer
-points. Open in A6: 480i flicker, 16:9 at 640 x 448, a smaller build.
+points. 16:9 in the SD modes is a setting (anamorphic, atlases of their own). Interlaced SD
+stays at full resolution; a flicker filter as a setting waits for libgl's deflicker (asked
+for). Open in A6: that setting, a smaller build.
 
 Status 2026-11-13 (later): 1080i the default, NTSC and PAL with their own pixel shapes, the
 mockups' fonts and layout; launch and return checked again under the kernel in 1080i.
@@ -182,6 +184,6 @@ only when it looks), mxshell's MX4SIO, A6.
 - Where a game keeps its saves and how the hub finds them; play time per game needs O6 and a
   record the shell writes (in O1, or a file per game).
 - The font: an open font with Latin accents (Inter Tight: SIL OFL), and the size of its atlas.
-- 16:9: anamorphic at 640 x 448, set by `video.aspect`; what a 4:3 game does.
+- 16:9 in SD (done for the shell, `video.aspect`): what a 4:3 game does.
 - Whether mxshell's devices that need drivers loaded on demand (MX4SIO, `host:`) stay as they
   are in MXSHELL2.

@@ -66,9 +66,13 @@ the program and the games in `build/pcsx2-test`: `MXLOAD="host:mxshell2k.elf dev
 
 Layout is in units that are square on the screen: 720 high, 1280 wide at 16:9 (1080i, 1.5
 pixels a unit) and 960 wide at 4:3 (NTSC and PAL, whose pixels are not square: each axis has
-its own scale). Text comes from an atlas per mode (`font/font_hd.bin`, `font_ntsc.bin`,
-`font_pal.bin`), its glyphs made for that mode's pixels and drawn 1:1, filtered bilinearly
-(beam racing draws the two fields half a line apart).
+its own scale). The SD modes (NTSC, PAL, 480p, 576p) can be 16:9 too (Settings › Video ›
+Television, `video.aspect`): anamorphic, 1280 units across the same 640 pixels. Text comes from
+an atlas per shape of pixel (`font/font_hd.bin`, `font_ntsc.bin`, `font_ntscw.bin` for NTSC at
+16:9, ...), its glyphs made for those pixels and drawn 1:1, filtered bilinearly (beam racing
+draws the two fields half a line apart). Interlaced SD keeps its full vertical resolution:
+each field draws its own lines of the same picture, for the television's deinterlacer to
+weave; a softer picture against flicker is for a setting (libgl's deflicker, to come).
 
 1080i is 16-bit colour (32 bits do not fit in GS memory at 1920 x 540 a field), which the
 GS dithers and cuts to 5 bits: half a step darker for each translucent layer, so a soft light

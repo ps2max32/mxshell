@@ -28,3 +28,19 @@ font_ntsc_bin:
 	.globl font_pal_bin
 font_pal_bin:
 	.incbin "font_pal.bin"
+	.balign 64
+	.globl font_p576w_bin
+font_p576w_bin:
+	.incbin "font_p576w.bin"
+	.balign 64
+	.globl font_p480w_bin
+font_p480w_bin:
+	.incbin "font_p480w.bin"
+	.balign 64
+	.globl font_ntscw_bin
+font_ntscw_bin:
+	.incbin "font_ntscw.bin"
+	.balign 64
+	.globl font_palw_bin
+font_palw_bin:
+	.incbin "font_palw.bin"

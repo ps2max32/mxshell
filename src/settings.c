@@ -73,7 +73,7 @@ static void ip_save(void) {
 /* ---- the items of each page ---- */
 static int nitems(void) {
   switch (page) {
-  case P_VIDEO: return VM_MODES + 3;
+  case P_VIDEO: return VM_MODES + 4;
   case P_NETWORK: return 4;
   case P_STORAGE: return NDEVS + 1;
   case P_PADS: return 2;
@@ -100,6 +100,11 @@ static const struct {
 int video_mode = VM_1080I, video_shape = SHAPE_HD;
 float scr_w = 1280, px_x = 1.5f, px_y = 1.5f;
 
+/* video.aspect: the television's shape in the SD modes (NTSC, PAL, 480p,
+   576p), 4:3 or 16:9 (anamorphic: the same 640 pixels across a wide
+   screen); HD is always 16:9 */
+static int sd_wide(void) { return !strcmp(cfg_get("video.aspect", "4:3"), "16:9"); }
+
 static int video_choice(void) {
   const char *v = cfg_get("video.mode", "1080i");
   for (int i = 0; i < VM_MODES; i++)
@@ -123,9 +128,15 @@ void video_apply(void) {
   if (got != vmodes[m].gl)
     video_mode = got == MXGL_PAL ? VM_PAL : VM_NTSC;
   video_shape = vmodes[video_mode].shape;
+  int wide = vmodes[video_mode].wide;
+  if (!wide && sd_wide()) {
+    static const int w16[] = {[SHAPE_P576] = SHAPE_P576W, [SHAPE_P480] = SHAPE_P480W, [SHAPE_NTSC] = SHAPE_NTSCW,
+                              [SHAPE_PAL] = SHAPE_PALW};
+    video_shape = w16[video_shape], wide = 1;
+  }
   int w, h;
   mxgl_screen(&w, &h);
-  scr_w = vmodes[video_mode].wide ? 1280.0f : 960.0f;
+  scr_w = wide ? 1280.0f : 960.0f;
   px_x = (float)w / scr_w, px_y = (float)h / 720.0f;
   if (video_shape == SHAPE_HD540)
     px_y = 0.75f; /* 1080p30: drawn as 540 lines, each shown twice */
@@ -193,22 +204,23 @@ static void note(float x, float y, const char *s) { d_text(FONT_SMALL, x, y, s, 
 
 static void page_video(float x0, float x1, float y) {
   int c = video_choice();
-  /* nine modes and the colour: closer rows */
-  const float row = 36;
+  /* nine modes and four settings: closer rows */
+  const float row = 32;
   for (int i = 0; i < VM_MODES; i++) {
     float yy = y + row * i;
     int chosen = in_page && item == i;
     if (chosen)
-      d_rect(x0 - 18, yy - 27, x1 + 18, yy + 12, argb(C_WHITE, 0.07f), argb(C_WHITE, 0.03f));
+      d_rect(x0 - 18, yy - 25, x1 + 18, yy + 10, argb(C_WHITE, 0.07f), argb(C_WHITE, 0.03f));
     d_text(FONT_BODY, x0, yy, vmodes[i].name, argb(i == c ? C_WHITE : C_DIM, 1));
     if (i == c)
       d_text(FONT_BODY, x1 - d_text_w(FONT_BODY, "On"), yy, "On", argb(C_LAMP, 1));
   }
   int deep = cfg_get("video.depth", "32")[0] == '3';
-  float yy = y + row * VM_MODES + 10;
+  float yy = y + row * VM_MODES + 8;
   line(x0, x1, yy, "Colour", deep ? "32-bit where it fits" : "16-bit", in_page && item == VM_MODES, 1);
-  line(x0, x1, yy + 46, "Dithering (16-bit colour)", dither_name(dither_choice()), in_page && item == VM_MODES + 1, 1);
-  line(x0, x1, yy + 92, "Dithering test picture", 0, in_page && item == VM_MODES + 2, 1);
+  line(x0, x1, yy + 42, "Dithering (16-bit colour)", dither_name(dither_choice()), in_page && item == VM_MODES + 1, 1);
+  line(x0, x1, yy + 84, "Dithering test picture", 0, in_page && item == VM_MODES + 2, 1);
+  line(x0, x1, yy + 126, "Television (SD modes)", sd_wide() ? "16:9" : "4:3", in_page && item == VM_MODES + 3, 1);
 }
 
 static void page_network(float x0, float x1, float y) {
@@ -407,6 +419,11 @@ void settings_input(void) {
       dither_next(1);
     else if (item == VM_MODES + 2)
       screen = SCR_DITHER;
+    else if (item == VM_MODES + 3) {
+      cfg_set("video.aspect", sd_wide() ? "4:3" : "16:9");
+      cfg_save();
+      video_apply();
+    }
     else {
       cfg_set("video.depth", cfg_get("video.depth", "32")[0] == '3' ? "16" : "32");
       cfg_save();
