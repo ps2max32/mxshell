@@ -157,7 +157,12 @@ times a field, so VU1's work counts three times and the GS passes took 7 ms inst
 (passes came late). The EE keeps the light; VU1 waits for a pipelined program on fewer
 points. 16:9 in the SD modes is a setting (anamorphic, atlases of their own). Interlaced SD
 stays at full resolution; a flicker filter as a setting waits for libgl's deflicker (asked
-for). Open in A6: that setting, a smaller build.
+for). The ELF is 0.89 MB (was 2.0: the font atlases packed with zlib, a section per
+function). Beside a game the shell keeps 3.8 MB pinned (measured with tests/fakegame.c: 24.6
+MB free for the game, 29.5 started alone): its core run of 2 MiB (libgl's texture table is
+400 KB of it; under 1.75 MB of core the run is 1 MiB) and libgl's heaps, about 1.8 MB. Asked
+of libgl: a knob for its number of textures and a call that gives its memory back while the
+shell waits. Open in A6: the flicker setting, and those two.
 
 Status 2026-11-13 (later): 1080i the default, NTSC and PAL with their own pixel shapes, the
 mockups' fonts and layout; launch and return checked again under the kernel in 1080i.
