@@ -1,7 +1,10 @@
 /* MXSHELL2: the 2D layer on libgl. Pixel coordinates of the 640 x 448
    screen; shading is per vertex (the GS's Gouraud), light is added
    (GL_ONE) so it brightens what is under it as a lamp would. */
+#define GL_GLEXT_PROTOTYPES 1
 #include <GL/gl.h>
+#include <GL/glext.h>
+#include <mx/debug.h>
 #include <math.h>
 #include <string.h>
 
@@ -89,6 +92,75 @@ void room_vertex(float x, float y, const float rgb[3]) {
   glVertex2f(x, y);
 }
 
+/* the room's lights on VU1 (room.vsm), with room=vu (tests): measured on
+   the PS2 in 1080i, Home's busiest frames, it costs the GS passes 7 ms each
+   instead of 2 (beam racing plays the frame's stream once a strip, three
+   times a field, so VU1's work counts three times, the EE's once) and
+   about 90 passes a second came too late. So the EE works the lights out
+   (room_col), and this waits for a cheaper program (pipelined, fewer
+   points) */
+extern const struct mxgl_vu1_binary room_vu1;
+int room_on_vu;
+static GLuint room_prog;
+static GLint u_lamp, u_lights, u_shadows;
+static int room_vu_on(void) {
+  static int tried;
+  if (!tried && room_on_vu) {
+    tried = 1;
+    GLuint sh = glCreateShader(GL_VERTEX_SHADER), prog = glCreateProgram();
+    glShaderBinary(1, &sh, GL_PS2_VU1_BINARY, &room_vu1, sizeof room_vu1);
+    glAttachShader(prog, sh);
+    glLinkProgram(prog);
+    GLint ok = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    u_lamp = glGetUniformLocation(prog, "lamp");
+    u_lights = glGetUniformLocation(prog, "lights");
+    u_shadows = glGetUniformLocation(prog, "shadows");
+    if (ok && u_lamp >= 0 && u_lights >= 0 && u_shadows >= 0)
+      room_prog = prog;
+    else
+      mx_printf("mxshell2: room.vsm does not link: the room on the EE\n");
+  }
+  return room_prog && room_on_vu;
+}
+
+static void room_vu_draw(const unsigned *modes, const int *firsts, const int *counts, int n, const void *pos,
+                         const void *rgba) {
+  /* the lights and the shadows in groups of four, a lane each: cx, cy,
+     1/rx, 1/ry, strength (an unused lane: strength 0) */
+  float lg[5][4] = {{0}}, sg[3][5][4] = {{{0}}};
+  int nl = 0, ns = 0;
+  for (int i = 0; i < nlights; i++) {
+    float *q[5];
+    if (lights[i].a >= 0 && nl < 4)
+      for (int k = 0; k < 5; k++)
+        q[k] = &lg[k][nl];
+    else if (lights[i].a < 0 && ns < 12)
+      for (int k = 0; k < 5; k++)
+        q[k] = &sg[ns / 4][k][ns % 4];
+    else
+      continue;
+    *q[0] = lights[i].cx, *q[1] = lights[i].cy, *q[2] = 1 / lights[i].rx, *q[3] = 1 / lights[i].ry;
+    *q[4] = lights[i].a >= 0 ? lights[i].a : -lights[i].a;
+    lights[i].a >= 0 ? nl++ : ns++;
+  }
+  float lamp[4] = {(float)(C_LAMP >> 16 & 255), (float)(C_LAMP >> 8 & 255), (float)(C_LAMP & 255), (float)dither_bias};
+  glUseProgram(room_prog);
+  glUniform4fv(u_lamp, 1, lamp);
+  glUniform4fv(u_lights, 5, &lg[0][0]);
+  glUniform4fv(u_shadows, 15, &sg[0][0][0]);
+  glDisable(GL_BLEND);
+  glEnableClientState(GL_VERTEX_ARRAY);
+  glEnableClientState(GL_COLOR_ARRAY);
+  glVertexPointer(3, GL_FLOAT, 0, pos);
+  glColorPointer(4, GL_UNSIGNED_BYTE, 0, rgba);
+  mxgl_MultiDraw(modes, firsts, counts, n);
+  glDisableClientState(GL_COLOR_ARRAY);
+  glDisableClientState(GL_VERTEX_ARRAY);
+  glEnable(GL_BLEND);
+  glUseProgram(0);
+}
+
 void room_draw(void) {
   /* rows: even, and close together around the floor, where the shadows
      and the pool are small. The lights are curves: between two rows (and
@@ -121,16 +193,36 @@ void room_draw(void) {
   static unsigned modes[ROWS];
   static int firsts[ROWS], counts[ROWS];
   int line = -1;
+  float base[64];
   for (int j = 0; j < ny; j++) {
     float y = ys[j];
     if (floor_y >= 0 && y == floor_y)
       line = j;
-    float base = (C_INK & 255);
+    base[j] = (C_INK & 255);
     if (floor_y >= 0 && y >= floor_y) {
       float k = clampf((y - floor_y) / (SCR_H - floor_y), 0, 1);
       k = k * k * (3 - 2 * k);
-      base = (float)(C_FLOOR & 255) + ((float)(C_INK & 255) - (float)(C_FLOOR & 255)) * k;
+      base[j] = (float)(C_FLOOR & 255) + ((float)(C_INK & 255) - (float)(C_FLOOR & 255)) * k;
     }
+  }
+  if (room_vu_on()) {
+    /* VU1 adds the lights (room.vsm): the grid with each row's own colour */
+    int n = 0;
+    for (int j = 0; j + 1 < ny; j++) {
+      modes[j] = GL_TRIANGLE_STRIP, firsts[j] = n, counts[j] = 2 * PTS;
+      for (int i = 0; i < PTS; i++)
+        for (int q = 0; q < 2; q++) {
+          u8 b = (u8)(base[j + q] + (j == line ? 10 : 0) + 0.5f);
+          spos[n][0] = SCR_W * i / NX, spos[n][1] = ys[j + q], spos[n][2] = 0;
+          srgba[n][0] = srgba[n][1] = srgba[n][2] = b, srgba[n][3] = 255;
+          n++;
+        }
+    }
+    room_vu_draw(modes, firsts, counts, ny - 1, spos, srgba);
+    return;
+  }
+  for (int j = 0; j < ny; j++) {
+    float y = ys[j];
     /* the lights this row is in, with their part of r^2 */
     int act[MAX_LIGHTS], na = 0;
     float dy2[MAX_LIGHTS];
@@ -140,7 +232,7 @@ void room_draw(void) {
         dy2[na] = dy * dy, act[na++] = l;
     }
     for (int i = 0; i < PTS; i++) {
-      float x = SCR_W * i / NX, rgb[3] = {base, base, base};
+      float x = SCR_W * i / NX, rgb[3] = {base[j], base[j], base[j]};
       for (int m = 0; m < na; m++) {
         int l = act[m];
         float dx = (x - lights[l].cx) / lights[l].rx, r2 = dx * dx + dy2[m];

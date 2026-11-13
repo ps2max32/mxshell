@@ -20,6 +20,9 @@ all: $(OUT)/MXOS/MXSHELL2.ELF
 
 # maxsdk's shared build (build/libs/maxsdk); a copy built for size, as
 # mxshell's, is for later (PLAN.md A6)
+# room.vsm: the room's lights on VU1, by hand (libgl's MXGL_VSM_PROGS)
+MXGL_VSM_DIR   := $(HERE)/src
+MXGL_VSM_PROGS := room
 include $(MXGL)/mk/mxgl.mk
 include $(MAXSDK)/mk/maxsdk.mk
 # in VM: the shell in VM, libgl (what the DMAC reads) in core

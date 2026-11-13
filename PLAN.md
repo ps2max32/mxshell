@@ -148,6 +148,15 @@ Each step runs on the PS2 with a television (NTSC and PAL) before it counts as d
 | A5 | Power-on sequence, the launch move (the lit tile grows to the screen, then the game starts) and the return (the shelf comes back with the game's tile lit) | – |
 | A6 | Measure and finish: GS pages and frame time against the budget, 480i flicker, PAL, 16:9; the focus light as hand-written VSM on VU1, then HLSL. Then MXSHELL2 can replace mxshell as `mc0:/MXOS/MXSHELL.ELF` (asked first) | – |
 
+Status 2026-11-13 (evening): A6 measured on the PS2 (1080i, `stats walk`): Home, Hub and
+Settings at 60 fps (50 PAL) in every mode, Home also while the focus moves (half a millisecond
+to spare then); GS memory: 1.3 of 1.9 MB of texture room with the covers. The room's light as
+hand-written VSM on VU1 (`src/room.vsm`, `room=vu`) works (the same picture to a 16-bit
+step) but costs more than it saves: beam racing plays the frame's stream once a strip, three
+times a field, so VU1's work counts three times and the GS passes took 7 ms instead of 2
+(passes came late). The EE keeps the light; VU1 waits for a pipelined program on fewer
+points. Open in A6: 480i flicker, 16:9 at 640 x 448, a smaller build.
+
 Status 2026-11-13 (later): 1080i the default, NTSC and PAL with their own pixel shapes, the
 mockups' fonts and layout; launch and return checked again under the kernel in 1080i.
 

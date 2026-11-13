@@ -8,6 +8,7 @@
      right=<n>       the focus n tiles to the right
      walk            (tests) the focus a tile on every 20 frames, there and back
      refl=a|b|c      (tests) the reflection's look
+     room=vu         (tests) the room's lights on VU1 (room.vsm), not the EE
      stats           (tests) libgl's counters
      end=<frames>    (tests) the end marker after that many frames
      switch=<mode>,... every=<frames>   (tests) the modes one after the other
@@ -253,6 +254,9 @@ int main(int argc, char **argv) {
     else if (!strncmp(a, "refl=", 5)) {
       extern int refl_style;
       refl_style = a[5] - 'a';
+    } else if (!strcmp(a, "room=vu")) {
+      extern int room_on_vu;
+      room_on_vu = 1;
     } else if (!strcmp(a, "walk"))
       walk = 1;
     else if (!strcmp(a, "stats"))
