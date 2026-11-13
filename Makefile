@@ -25,6 +25,10 @@ all: $(OUT)/MXOS/MXSHELL2.ELF
 # at -Os (0.72 MB) drops Home to 54 fps while the focus moves
 MAXSDK_OUT ?= $(OUT)/maxsdk
 export EXTRA_CFLAGS = -ffunction-sections -fdata-sections
+# texture names: the font and a cover a game (MAX_GAMES 64), with room to
+# spare; libgl's default (2048) is 500 KB of core the shell keeps beside a
+# game
+MXGL_MAX_TEXTURES = 128
 # room.vsm: the room's lights on VU1, by hand (libgl's MXGL_VSM_PROGS)
 MXGL_VSM_DIR   := $(HERE)/src
 MXGL_VSM_PROGS := room

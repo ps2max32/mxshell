@@ -148,11 +148,10 @@ static void launch(void) {
   char name[48];
   strncpy(name, games[g].title, sizeof name - 1), name[sizeof name - 1] = 0;
   /* the game gets the GS, the pad's ports and as much memory as can be
-     given: the covers go, the pipeline stops */
+     given: the covers go, and libgl gives back its arenas, beam racing's
+     records and the rest it holds (mxgl_suspend stops the pipeline) */
   games_textures_free();
-  /* without beam racing: its records and arenas (2 MiB) given back */
-  mxgl_set_mode(MXGL_SD);
-  mx_frame_stop();
+  mxgl_suspend();
   /* what stays of the shell beside the game: its pinned frames (the
      kernel's are counted too) */
   struct mx_mem_pressure mp;
@@ -160,6 +159,10 @@ static void launch(void) {
   mx_printf("mxshell2: launch %s: %u KB pinned, %u KB free\n", name, mp.pinned_frames * (MX_VM_PAGE / 1024),
             mp.free_frames * (MX_VM_PAGE / 1024));
   int st = game_launch(g);
+  /* libgl's memory again (if the game's memory is not back yet, a while
+     later), then the mode as set */
+  for (int i = 0; mxgl_resume() == -1 && i < 50; i++)
+    mx_sleep_us(100000);
   video_apply();
   pad_on = mx_pad_init() >= 0;
   games_textures();
