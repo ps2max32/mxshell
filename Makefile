@@ -1,6 +1,6 @@
 # MXSHELL2: the new shell of mx OS (PLAN.md), on libgl.
 #
-#   make                 build/apps/mxshell2/MXOS/MXSHELL2.ELF: an MXOS program
+#   make                 build/apps/mxshell2/MXOS/MXSHELL.ELF: an MXOS program
 #                        (libmxk), started by the kernel
 #   make standalone      build/apps/mxshell2-sa/mxshell2.elf: libmx, for
 #                        pictures on PCSX2 (-elf; no games are started)
@@ -16,7 +16,13 @@ MXGL     ?= $(PS2MAX)/libs/libgl
 MX_TARGET ?= mxos
 OUT      ?= $(PS2MAX)/build/apps/mxshell2$(if $(filter standalone,$(MX_TARGET)),-sa)
 
-all: $(OUT)/MXOS/MXSHELL2.ELF
+PS2MAX_PS2DEV  ?= $(abspath $(PS2MAX)/../ps2dev/install)
+PS2MAX_IOP_SDK ?= $(PS2MAX_PS2DEV)/ps2sdk
+PS2MAX_IRX     ?= $(PS2MAX_IOP_SDK)/iop/irx
+# the storage drivers it loads from mc0:/MXOS, one device's at a time
+STORAGE_MODULES = bdm bdmfs_fatfs usbd usbmass_bd mx4sio_bd mxata
+
+all: $(OUT)/MXOS/MXSHELL.ELF $(STORAGE_MODULES:%=$(OUT)/MXOS/%.irx)
 
 # its own maxsdk, built with a section per function and variable (and
 # libgl and the shell the same), for the linker to leave out what is not
@@ -67,9 +73,22 @@ $(OUT)/obj/font_bin.o: $(HERE)/src/font_bin.S $(wildcard $(HERE)/font/font_*.z)
 $(OUT)/mxshell2.elf: $(OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(MX_LIB) $(MX_CRT0) $(MX_LD) $(LIBC_LIBS)
 	$(call link,$@,$(MX_CRT0) $(OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(LIBC_LIBS))
 
-$(OUT)/MXOS/MXSHELL2.ELF: $(OUT)/mxshell2.elf
+$(OUT)/MXOS/MXSHELL.ELF: $(OUT)/mxshell2.elf
 	@mkdir -p $(dir $@)
 	$(LLVM)/llvm-strip -o $@ $<
+
+# maxsdk's USB mass storage and HDD drivers, from one make of its iop/
+MAXSDK_IRX = $(PS2MAX)/build/libs/maxsdk/iop
+$(OUT)/MXOS/usbmass_bd.irx $(OUT)/MXOS/mxata.irx: maxsdk-iop
+	@mkdir -p $(dir $@)
+	cp $(MAXSDK_IRX)/$(notdir $@) $@
+maxsdk-iop:
+	$(MAKE) -C $(PS2MAX)/libs/maxsdk/iop EXTRA_CFLAGS= OUT=$(MAXSDK_IRX)
+# ps2sdk's prebuilt ones
+$(OUT)/MXOS/%.irx: $(PS2MAX_IRX)/%.irx
+	@mkdir -p $(dir $@)
+	cp $< $@
+.PHONY: maxsdk-iop
 
 -include $(OBJS:.o=.d)
 

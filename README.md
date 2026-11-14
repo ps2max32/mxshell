@@ -1,7 +1,7 @@
 # MXSHELL2
 
 The new shell of mx OS on the PS2, on libgl, in its own design language (Penumbra: focus is
-light). It replaces mxshell once it does all mxshell does; until then it is a separate ELF.
+light). It is the shell of mx OS (`mc0:/MXOS/MXSHELL.ELF`); the first shell is the branch `mxshell1`.
 What is decided, what the OS still lacks and the order of the work: [PLAN.md](PLAN.md).
 
 What it does now (PLAN.md, phase A):
@@ -38,7 +38,7 @@ variable, and libgl and itself the same, so the linker leaves out what is not us
 misses frames while the focus moves.
 
 ```
-make              # build/apps/mxshell2/MXOS/MXSHELL2.ELF: an MXOS program (libmxk)
+make              # build/apps/mxshell2/MXOS/MXSHELL.ELF: an MXOS program (libmxk), and the storage drivers it loads
 make standalone   # build/apps/mxshell2-sa/mxshell2.elf: libmx, for pictures on PCSX2
 make shot         # that ELF on PCSX2 (RUNNER=...) with build/pcsx2-test/PS2MAX: host:mxshell2.tga
                   # (ARGS="screen=hub", "screen=settings", "note", "right=<n>", "rgb16")
