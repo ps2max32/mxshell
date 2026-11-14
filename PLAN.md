@@ -1,6 +1,6 @@
 # MXSHELL2: implementation plan
 
-A new shell for mx OS, written from scratch: not built on `apps/mxshell`'s code. It does on the
+A new shell for mx OS, written from scratch: not built on the first shell's code (branch `mxshell1`). It does on the
 PS2 what the home screens of later consoles do (games, a menu over a running game, settings,
 controllers, notifications), in one design language of its own, and shows what maxsdk's LLVM
 toolchain (HLSL vertex programs on VU1) and libgl (3D) can do. Started 2026-11-13.
@@ -140,13 +140,13 @@ Each step runs on the PS2 with a television (NTSC and PAL) before it counts as d
 
 | Step | What | With what exists today |
 |---|---|---|
-| A0 | The app: `apps/mxshell2`, libmxk (`MX_TARGET=mxos`) and libgl; Penumbra as one header (colours, sizes, spring constants); the font atlas; a frame-time counter; a standalone build (`MX_TARGET=standalone`) for pictures on PCSX2 | – |
+| A0 | The app: `apps/mxshell`, libmxk (`MX_TARGET=mxos`) and libgl; Penumbra as one header (colours, sizes, spring constants); the font atlas; a frame-time counter; a standalone build (`MX_TARGET=standalone`) for pictures on PCSX2 | – |
 | A1 | Home Shelf: games from the devices (mxshell's `game.ini` and `cover.t8`, so `package-games.sh` keeps working), the focus light (on the EE first; VU1 later), the reflection, the springs, the caption, sections. Start a game (`mx_loader_launch`: the shell waits), back at its end; its textures given back while the game runs | `mx_loader_launch`, mxio, the storage drivers on `mc0:/MXOS` |
 | A2 | Game hub: the slab, details from `game.ini`, the size of its directory, saves where `game.ini` names them (a `saves` key) | mxio |
 | A3 | Settings, the parts that need no OS change: Video (the shell's own mode: NTSC, PAL, 480p as libgl offers them), Network (edits `IPCONFIG.DAT`: used at the next start of the kernel, which the page says), Storage (the devices the shell can open, their games), Controllers (which ports have a pad, rumble test), System (the shell's and the kernel's versions, `SERVICES.CFG`). Kept in the shell's own file, `mc0:/MXOS/MXSHELL2.CFG`, until O1 | mxio, `mx_pad_*`, `mx_pad_rumble` |
 | A4 | Notifications as toasts, from what the shell sees itself: a pad came or went (`mx_pad_connected`), a device came or went (looked at every few seconds), a game ended with an error or a crash (`mx_crash_last`), a setting saved. Urgent ones stay; a history page | `mx_pad_*`, mxio, `mx_crash_last` |
 | A5 | Power-on sequence, the launch move (the lit tile grows to the screen, then the game starts) and the return (the shelf comes back with the game's tile lit) | – |
-| A6 | Measure and finish: GS pages and frame time against the budget, 480i flicker, PAL, 16:9; the focus light as hand-written VSM on VU1, then HLSL. Then MXSHELL2 can replace mxshell as `mc0:/MXOS/MXSHELL.ELF` (asked first) | – |
+| A6 | Measure and finish: GS pages and frame time against the budget, 480i flicker, PAL, 16:9; the focus light as hand-written VSM on VU1, then HLSL. Then MXSHELL2 replaces the first shell as `mc0:/MXOS/MXSHELL.ELF` (done 2026-11-14; the first shell is the branch `mxshell1`) | – |
 
 Status 2026-11-13 (evening): A6 measured on the PS2 (1080i, `stats walk`): Home, Hub and
 Settings at 60 fps (50 PAL) in every mode, Home also while the focus moves (half a millisecond

@@ -57,7 +57,7 @@ void text_init(void) {
   uLongf got = n;
   if (uncompress(buf + 64, &got, atlases[video_shape].z,
                  (uLong)(atlases[video_shape].z_end - atlases[video_shape].z)) != Z_OK || got != n) {
-    mx_printf("mxshell2: the font of shape %d does not unpack\n", video_shape);
+    mx_printf("mxshell: the font of shape %d does not unpack\n", video_shape);
     free(buf);
     return;
   }

@@ -18,7 +18,7 @@
      switch=<mode>,... every=<frames>   (tests) the modes one after the other
      note            a notification on the screen
      launch          start the game in focus at once (tests)
-     shot=<frames>   the picture to host:mxshell2.tga after that many frames,
+     shot=<frames>   the picture to host:mxshell.tga after that many frames,
                      then the end marker */
 #include <GL/gl.h>
 #include <mx/debug.h>
@@ -159,7 +159,7 @@ static void launch(void) {
      kernel's are counted too) */
   struct mx_mem_pressure mp;
   mx_mem_pressure(&mp);
-  mx_printf("mxshell2: launch %s: %u KB pinned, %u KB free\n", name, mp.pinned_frames * (MX_VM_PAGE / 1024),
+  mx_printf("mxshell: launch %s: %u KB pinned, %u KB free\n", name, mp.pinned_frames * (MX_VM_PAGE / 1024),
             mp.free_frames * (MX_VM_PAGE / 1024));
   int st = game_launch(g);
   /* libgl's memory again (if the game's memory is not back yet, a while
@@ -217,10 +217,10 @@ static void read_pad(void) {
 }
 
 #ifdef MX_BIOS_CALLS
-/* the standalone build on PCSX2 (-elf: no arguments): host:mxshell2.txt */
+/* the standalone build on PCSX2 (-elf: no arguments): host:mxshell.txt */
 static char *file_args[8], file_buf[128];
 static int args_from_host(char ***argv) {
-  int fd = mx_fio_open("host:mxshell2.txt", MX_FIO_RDONLY), n = 0, argc = 1;
+  int fd = mx_fio_open("host:mxshell.txt", MX_FIO_RDONLY), n = 0, argc = 1;
   if (fd < 0)
     return 1;
   n = mx_fio_read(fd, file_buf, sizeof file_buf - 1);
@@ -440,7 +440,7 @@ int main(int argc, char **argv) {
       m[n] = 0;
       if (*switch_to == ',')
         switch_to++;
-      mx_printf("mxshell2: switch to %s\n", m);
+      mx_printf("mxshell: switch to %s\n", m);
       cfg_set("video.mode", m);
       video_apply();
     }
@@ -451,8 +451,8 @@ int main(int argc, char **argv) {
       return 0;
     }
     if (shot && ticks == (u32)shot) {
-      int r = mxgl_screenshot("host:mxshell2.tga");
-      mx_printf("mxshell2: shot %d\n", r);
+      int r = mxgl_screenshot("host:mxshell.tga");
+      mx_printf("mxshell: shot %d\n", r);
       MX_TEST_END(r ? 1 : 0);
       return 0;
     }

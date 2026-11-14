@@ -42,7 +42,7 @@ static int load_module(const char *file, const char *name) {
   mx_snprintf(path, sizeof path, MXOS "%s.irx", file);
   int fd = mx_fio_open(path, MX_FIO_RDONLY);
   if (fd < 0) {
-    mx_printf("mxshell2: %s: not there (%d)\n", path, fd);
+    mx_printf("mxshell: %s: not there (%d)\n", path, fd);
     return -1;
   }
   /* the IOP reads it by SIF DMA: pinned, and only while it is loaded (128
@@ -56,13 +56,13 @@ static int load_module(const char *file, const char *name) {
   int n = mx_fio_read(fd, irx, room), res = 0;
   mx_fio_close(fd);
   if (n <= 0 || n == (int)room) {
-    mx_printf("mxshell2: %s: read %d\n", path, n);
+    mx_printf("mxshell: %s: read %d\n", path, n);
     mx_dma_free(irx);
     return -1;
   }
   int id = mx_iop_load_module_buffer(irx, (u32)n, 0, 0, &res);
   mx_dma_free(irx);
-  mx_printf("mxshell2: %s: %d, %d\n", file, id, res);
+  mx_printf("mxshell: %s: %d, %d\n", file, id, res);
   return id < 0 ? -1 : 0;
 }
 
@@ -185,7 +185,7 @@ int games_step(void) {
       for (int m = 0; m < 4 && mods[d][m][0]; m++)
         if (load_module(mods[d][m][0], mods[d][m][1]) < 0) {
           /* without its drivers the device cannot come */
-          mx_printf("mxshell2: %s: no drivers\n", dev_root[d]);
+          mx_printf("mxshell: %s: no drivers\n", dev_root[d]);
           step_tries = TRIES;
           break;
         }
@@ -222,7 +222,7 @@ static int cover_file(int i, const char *file, int cw, int ch) {
   game_path(path, sizeof path, i, file);
   int fd = mx_fio_open(path, MX_FIO_RDONLY);
   if (fd < 0) {
-    mx_printf("mxshell2: %s: no cover (%d)\n", path, fd);
+    mx_printf("mxshell: %s: no cover (%d)\n", path, fd);
     return -1;
   }
   int th = 8;
@@ -238,7 +238,7 @@ static int cover_file(int i, const char *file, int cw, int ch) {
   n += mx_fio_read(fd, buf + 1024, (u32)(cw * ch));
   mx_fio_close(fd);
   if (n != 1024 + cw * ch) {
-    mx_printf("mxshell2: %s: %d bytes, not a %d x %d cover\n", path, n, cw, ch);
+    mx_printf("mxshell: %s: %d bytes, not a %d x %d cover\n", path, n, cw, ch);
     free(buf);
     return -1;
   }
@@ -261,7 +261,7 @@ static int cover_file(int i, const char *file, int cw, int ch) {
 }
 
 static int cover_load(int i) {
-  mx_printf("mxshell2: %s: cover '%s', cover_hd '%s'\n", games[i].dir, games[i].cover, games[i].cover_hd);
+  mx_printf("mxshell: %s: cover '%s', cover_hd '%s'\n", games[i].dir, games[i].cover, games[i].cover_hd);
   if (games[i].cover_hd[0] && cover_file(i, games[i].cover_hd, 256, 361) == 0)
     return 0;
   return games[i].cover[0] ? cover_file(i, games[i].cover, 128, 176) : -1;

@@ -1,11 +1,11 @@
 # MXSHELL2: the new shell of mx OS (PLAN.md), on libgl.
 #
-#   make                 build/apps/mxshell2/MXOS/MXSHELL.ELF: an MXOS program
+#   make                 build/apps/mxshell/MXOS/MXSHELL.ELF: an MXOS program
 #                        (libmxk), started by the kernel
-#   make standalone      build/apps/mxshell2-sa/mxshell2.elf: libmx, for
+#   make standalone      build/apps/mxshell-sa/mxshell.elf: libmx, for
 #                        pictures on PCSX2 (-elf; no games are started)
 #   make shot            that ELF on PCSX2 with the games of
-#                        build/pcsx2-test/PS2MAX: host:mxshell2.tga
+#                        build/pcsx2-test/PS2MAX: host:mxshell.tga
 #   make font            font/font_<mode>.z and font/font.h again from
 #                        font/src (Inter Tight, JetBrains Mono)
 
@@ -14,7 +14,7 @@ PS2MAX   ?= $(abspath $(HERE)/../..)
 MAXSDK   ?= $(PS2MAX)/libs/maxsdk
 MXGL     ?= $(PS2MAX)/libs/libgl
 MX_TARGET ?= mxos
-OUT      ?= $(PS2MAX)/build/apps/mxshell2$(if $(filter standalone,$(MX_TARGET)),-sa)
+OUT      ?= $(PS2MAX)/build/apps/mxshell$(if $(filter standalone,$(MX_TARGET)),-sa)
 
 PS2MAX_PS2DEV  ?= $(abspath $(PS2MAX)/../ps2dev/install)
 PS2MAX_IOP_SDK ?= $(PS2MAX_PS2DEV)/ps2sdk
@@ -70,10 +70,10 @@ $(OUT)/obj/font_bin.o: $(HERE)/src/font_bin.S $(wildcard $(HERE)/font/font_*.z)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -Wa,-I$(HERE)/font -I$(HERE)/font -c $< -o $@
 
-$(OUT)/mxshell2.elf: $(OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(MX_LIB) $(MX_CRT0) $(MX_LD) $(LIBC_LIBS)
+$(OUT)/mxshell.elf: $(OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(MX_LIB) $(MX_CRT0) $(MX_LD) $(LIBC_LIBS)
 	$(call link,$@,$(MX_CRT0) $(OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(LIBC_LIBS))
 
-$(OUT)/MXOS/MXSHELL.ELF: $(OUT)/mxshell2.elf
+$(OUT)/MXOS/MXSHELL.ELF: $(OUT)/mxshell.elf
 	@mkdir -p $(dir $@)
 	$(LLVM)/llvm-strip -o $@ $<
 
@@ -116,9 +116,9 @@ standalone:
 SHOT_FRAMES ?= 200
 shot: standalone
 	@test -n "$(RUNNER)" || { echo "make shot: set RUNNER (see the Makefile)"; exit 2; }
-	cp $(PS2MAX)/build/apps/mxshell2-sa/mxshell2.elf $(PS2MAX)/build/pcsx2-test/mxshell2.elf
-	echo "dev=hostonly shot=$(SHOT_FRAMES) $(ARGS)" > $(PS2MAX)/build/pcsx2-test/mxshell2.txt
-	PCSX2_RENDERER=sw $(RUNNER) $(PS2MAX)/build/pcsx2-test/mxshell2.elf 240
+	cp $(PS2MAX)/build/apps/mxshell-sa/mxshell.elf $(PS2MAX)/build/pcsx2-test/mxshell.elf
+	echo "dev=hostonly shot=$(SHOT_FRAMES) $(ARGS)" > $(PS2MAX)/build/pcsx2-test/mxshell.txt
+	PCSX2_RENDERER=sw $(RUNNER) $(PS2MAX)/build/pcsx2-test/mxshell.elf 240
 
 font:
 	python3 $(HERE)/tools/mk-font.py $(HERE)/font/src $(HERE)/font

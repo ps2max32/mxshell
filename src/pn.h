@@ -167,7 +167,7 @@ void toast_draw(void);
 void toast_step(void);
 int toast_dismiss(void); /* an urgent one waiting for a button: 1 if taken */
 
-/* ---- the settings (settings.c): mc0:/MXOS/MXSHELL2.CFG until the kernel has a store ---- */
+/* ---- the settings (settings.c): mc0:/MXOS/MXSHELL2.CF0 and .CF1 until the kernel has a store ---- */
 const char *cfg_get(const char *key, const char *def);
 void cfg_set(const char *key, const char *value);
 void cfg_load(void);

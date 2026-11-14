@@ -121,7 +121,7 @@ static int room_vu_on(void) {
     if (ok && u_lamp >= 0 && u_lights >= 0 && u_shadows >= 0)
       room_prog = prog;
     else
-      mx_printf("mxshell2: room.vsm does not link: the room on the EE\n");
+      mx_printf("mxshell: room.vsm does not link: the room on the EE\n");
   }
   return room_prog && room_on_vu;
 }
