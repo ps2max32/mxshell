@@ -13,6 +13,7 @@ const struct vmode vmodes[VM_MODES] = {
     [VM_1080I] = {"1080i", "1080i  1920 x 1080, 60 Hz", MXGL_1080I, SHAPE_HD, 1, 60},
     [VM_1080I50] = {"1080i50", "1080i  1920 x 1080, 50 Hz", MXGL_1080I50, SHAPE_HD, 1, 50},
     [VM_1080P30] = {"1080p30", "1080p  1920 x 1080, 30 Hz", MXGL_1080P30, SHAPE_HD540, 1, 30},
+    [VM_1080P25] = {"1080p25", "1080p  1920 x 1080, 25 Hz", MXGL_1080P25, SHAPE_HD540, 1, 25},
     [VM_720P] = {"720p", "720p  1280 x 720, 60 Hz", MXGL_720P, SHAPE_P720, 1, 60},
     [VM_720P50] = {"720p50", "720p  1280 x 720, 50 Hz", MXGL_720P50, SHAPE_P720, 1, 50},
     [VM_576P] = {"576p", "576p  640 x 576, 50 Hz", MXGL_576P, SHAPE_P576, 0, 50},
@@ -72,7 +73,7 @@ void video_apply(void) {
   scr_w = wide ? 1280.0f : 960.0f;
   px_x = (float)w / scr_w, px_y = (float)h / 720.0f;
   if (video_shape == SHAPE_HD540)
-    px_y = 0.75f; /* 1080p30: drawn as 540 lines, each shown twice */
+    px_y = 0.75f; /* 1080p30, 1080p25: drawn as 540 lines, each shown twice */
   mxgl_window((int)scr_w, 720);
   frame_dt = 1.0f / (float)vmodes[video_mode].hz;
   /* 16-bit colour is dithered (draw.c, dither.c) */

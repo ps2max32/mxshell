@@ -1,4 +1,4 @@
-/* MXSHELL2: dithering into 16 bits (1080i, 720p, 1080p30, 16-bit SD) and a
+/* MXSHELL2: dithering into 16 bits (1080i, 720p, 1080p30, 1080p25, 16-bit SD) and a
    test picture to compare on a television.
 
    The GS adds an offset from a 4 x 4 matrix (DIMX, -4..3) to each colour

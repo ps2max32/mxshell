@@ -19,7 +19,7 @@
 extern float scr_w; /* 1280 or 960 */
 /* the video modes (settings.c has their table) and the shapes of their
    pixels (font.c: an atlas each) */
-enum { VM_1080I, VM_1080I50, VM_1080P30, VM_720P, VM_720P50, VM_576P, VM_480P, VM_NTSC, VM_PAL, VM_MODES };
+enum { VM_1080I, VM_1080I50, VM_1080P30, VM_1080P25, VM_720P, VM_720P50, VM_576P, VM_480P, VM_NTSC, VM_PAL, VM_MODES };
 enum { SHAPE_HD, SHAPE_HD540, SHAPE_P720, SHAPE_P576, SHAPE_P480, SHAPE_NTSC, SHAPE_PAL,
        /* the SD modes at 16:9 (video.aspect): anamorphic, 1280 units across 640 pixels */
        SHAPE_P576W, SHAPE_P480W, SHAPE_NTSCW, SHAPE_PALW };

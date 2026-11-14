@@ -92,10 +92,10 @@ static int nitems(void) {
 enum { FAM_1080, FAM_720, FAM_EDTV, FAM_SD, NFAMS };
 static const struct {
   const char *name, *size;
-  int n, mode[3];
-  const char *sub[3];
+  int n, mode[4];
+  const char *sub[4];
 } fams[NFAMS] = {
-    {"1080", "1920 x 1080", 3, {VM_1080I, VM_1080I50, VM_1080P30}, {"60i", "50i", "30p"}},
+    {"1080", "1920 x 1080", 4, {VM_1080I, VM_1080I50, VM_1080P30, VM_1080P25}, {"60i", "50i", "30p", "25p"}},
     {"720p", "1280 x 720", 2, {VM_720P, VM_720P50}, {"60p", "50p"}},
     {"480p/576p", "640 x 480 / 576", 2, {VM_480P, VM_576P}, {"NTSC  60p", "PAL  50p"}},
     {"NTSC/PAL", "640 x 448 / 512", 2, {VM_NTSC, VM_PAL}, {"NTSC  60i", "PAL  50i"}},
