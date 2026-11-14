@@ -1,0 +1,141 @@
+; room: MXSHELL2's room (draw.c) on VU1, by hand, not pipelined: libgl's
+; vertex program (its tests/glvsm.vsm: the entry ABI of a compiled one,
+; llvm lib/Target/VU/VUEntryABI.md) with the room's light in it. The EE sends
+; a fixed grid and, as each vertex's colour, the room's own (the floor's
+; gradient); this adds the lights and the shadows, as room_col does:
+;
+;   c = base + lamp * sum over lights of (1 - r^2)^2 * a      (r^2 < 1)
+;   c = c * product over shadows of (1 - (1 - r^2)^2 * a)
+;   c = min(c, 250) + bias
+;
+; r^2 = ((x - cx) / rx)^2 + ((y - cy) / ry)^2 in the room's units (the
+; positions as the EE gives them, before mvp). Four lights a group, a lane
+; each (a quadword each of cx, cy, 1/rx, 1/ry, a); one group of lights, three
+; of shadows; an unused lane has a = 0. The layout: room.h.
+;
+;   vf1 tms   vf2 (tms.z, tmt.z)   vf3 tmt   vf4-7 mvp   vf10 cscale
+;   vf19.x 1.5 * 2^23 (rounds the colour to an integer)   vf20 lamp, w bias
+;   vf21-25 the lights   vf26 (1, 1, 1, 1)
+;   vi1 the buffer   vi3 the vertex   vi4 vertices to do   vi6 the context
+	.section .vutext, "ax", @progbits
+	.globl room_vu
+room_vu:
+	nop				xitop vi6
+	nop				lq.xyzw vf1, 6(vi6)
+	nop				lq.xyzw vf3, 7(vi6)
+	nop				lq.xyzw vf4, 1(vi6)
+	nop				lq.xyzw vf5, 2(vi6)
+	nop				lq.xyzw vf6, 3(vi6)
+	nop				lq.xyzw vf7, 4(vi6)
+	nop				lq.xyzw vf10, 5(vi6)
+	nop				lq.xyzw vf20, 8(vi6)
+	nop				lq.xyzw vf21, 9(vi6)
+	nop				lq.xyzw vf22, 10(vi6)
+	nop				lq.xyzw vf23, 11(vi6)
+	nop				lq.xyzw vf24, 12(vi6)
+	nop				lq.xyzw vf25, 13(vi6)
+	maxw.xyzw vf26, vf0, vf0w	nop
+	addz.xyz vf2, vf0, vf1z		loi 0x4b400000
+	addz.y vf2, vf0, vf3z		nop
+	addi.x vf19, vf0, i		nop
+batch:
+	nop				xtop vi1
+	nop				xitop vi2
+	nop				ilw.x vi4, 0(vi1)
+	nop				ilw.x vi3, 0(vi2)
+	nop				lq.xyzw vf11, 0(vi2)
+	nop				iaddiu vi6, vi2, 0
+	nop				nop
+	nop				nop
+	nop				ior vi2, vi3, vi4
+	nop				sq.xyzw vf11, 241(vi1)
+	nop				nop
+	nop				ibeq vi4, vi0, done
+	nop				isw.x vi2, 241(vi1)
+	nop				iaddi vi3, vi1, 1
+loop:
+	nop				lq.xyzw vf13, 0(vi3)
+	nop				lq.xyzw vf15, 1(vi3)
+	nop				lq.xyzw vf14, 2(vi3)
+	; the position: as libgl's own program
+	mulaw.xyzw acc, vf7, vf0w	nop
+	maddax.xyzw acc, vf4, vf13x	nop
+	madday.xyzw acc, vf5, vf13y	nop
+	maddz.xyzw vf12, vf6, vf13z	nop
+	addw.x vf18, vf0, vf13w		nop
+	mulaw.xyzw acc, vf2, vf0w	nop
+	maddax.xyzw acc, vf1, vf15x	div q, vf0w, vf12w
+	maddy.xyzw vf15, vf3, vf15y	nop
+	ftoi0.x vf18, vf18		nop
+	itof0.xyzw vf14, vf14		nop
+	; the lights: k = max(1 - r^2, 0), the sum of k^2 a
+	subx.xyzw vf16, vf21, vf13x	nop
+	suby.xyzw vf17, vf22, vf13y	nop
+	mul.xyzw vf16, vf16, vf23	nop
+	mul.xyzw vf17, vf17, vf24	nop
+	mula.xyzw acc, vf16, vf16	nop
+	madd.xyzw vf16, vf17, vf17	nop
+	sub.xyzw vf16, vf26, vf16	nop
+	maxx.xyzw vf16, vf16, vf0x	nop
+	mul.xyzw vf16, vf16, vf16	nop
+	mul.xyzw vf16, vf16, vf25	nop
+	addy.x vf16, vf16, vf16y	nop
+	addz.x vf16, vf16, vf16z	nop
+	addw.x vf16, vf16, vf16w	nop
+	mulax.xyz acc, vf20, vf16x	nop
+	madd.xyz vf14, vf26, vf14	nop
+	; the shadows: the product of 1 - k^2 a, a group at a time
+	addw.x vf27, vf0, vf0w		nop
+	nop				iaddiu vi7, vi6, 14
+	nop				iaddiu vi8, vi0, 3
+shadow:
+	nop				lq.xyzw vf28, 0(vi7)
+	nop				lq.xyzw vf29, 1(vi7)
+	nop				lq.xyzw vf30, 2(vi7)
+	nop				lq.xyzw vf31, 3(vi7)
+	subx.xyzw vf16, vf28, vf13x	nop
+	suby.xyzw vf17, vf29, vf13y	nop
+	mul.xyzw vf16, vf16, vf30	nop
+	mul.xyzw vf17, vf17, vf31	nop
+	nop				lq.xyzw vf28, 4(vi7)
+	mula.xyzw acc, vf16, vf16	nop
+	madd.xyzw vf16, vf17, vf17	nop
+	sub.xyzw vf16, vf26, vf16	nop
+	maxx.xyzw vf16, vf16, vf0x	nop
+	mul.xyzw vf16, vf16, vf16	nop
+	mul.xyzw vf16, vf16, vf28	nop
+	sub.xyzw vf16, vf26, vf16	nop
+	muly.x vf16, vf16, vf16y	iaddi vi8, vi8, -1
+	mulz.x vf16, vf16, vf16z	iaddiu vi7, vi7, 5
+	mulw.x vf16, vf16, vf16w	nop
+	mulx.x vf27, vf27, vf16x	nop
+	nop				ibne vi8, vi0, shadow
+	nop				nop
+	mulx.xyz vf14, vf14, vf27x	loi 0x437a0000
+	minii.xyz vf14, vf14, i		nop
+	addw.xyz vf14, vf14, vf20w	nop
+	; to the GS's colour, rounded
+	mul.xyzw vf17, vf14, vf10	nop
+	nop				mtir vi5, vf18x
+	addx.xyzw vf17, vf17, vf19x	nop
+	nop				iaddiu vi5, vi5, 32767
+	nop				waitq
+	mulq.xyzw vf15, vf15, q		nop
+	mulq.xyzw vf12, vf12, q		nop
+	addq.z vf15, vf0, q		nop
+	ftoi4.xyzw vf12, vf12		nop
+	nop				sq.xyzw vf17, 242(vi3)
+	nop				sq.xyzw vf15, 241(vi3)
+	nop				mfir.w vf12, vi5
+	nop				iaddi vi4, vi4, -1
+	nop				sq.xyzw vf12, 243(vi3)
+	nop				nop
+	nop				ibne vi4, vi0, loop
+	nop				iaddi vi3, vi3, 3
+done:
+	nop				iaddiu vi1, vi1, 241
+	nop				xgkick vi1
+	nop[e]				nop
+	nop				nop
+	nop				b batch
+	nop				nop
