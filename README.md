@@ -6,20 +6,33 @@ What is decided, what the OS still lacks and the order of the work: [PLAN.md](PL
 
 What it does now (PLAN.md, phase A):
 
-- **Home**: the games on a shelf, the lit one with its caption; covers from `cover.t8`, else a
-  tile with the title. The light follows the focus.
+- **Home**: sections, L1 and R1 go through them: Games, Media, Emulation, Apps and Settings.
+  Each is a shelf, the lit tile with its caption; covers from `cover.t8`, else a tile with the
+  title. The light follows the focus. A program's `game.ini` names its section with
+  `section=media`, `emulation` or `apps` (without it: Games); a media player is a program like a
+  game, in Media.
 - **Game hub** (triangle): the game as a slab, its details from `game.ini`, its size and
   place, its saves where `game.ini` names them (`saves=<directory>`).
-- **Starting a game** (cross): the lit tile grows to the screen, the game starts with
+- **Starting a game** (cross): the lit tile goes to the middle as a poster, the rest goes dark,
+  a line under it fills, then black; the game starts with
   `mx_loader_launch` and the shell waits; its covers and beam racing's memory are given
   back first. Back from the game the shelf comes out of the dark; a game that crashed or
   ended with a status other than 0 leaves a notification.
-- **Settings** (R1): Video (without a setting the console's own mode, PAL or NTSC; 1080i, 720p and the others by
-  choice; a new mode
+- **Settings** (the last section, its own screen: the pages in a list, L1 back to Apps): Video (a family of modes, 1080, 720p, 480p/576p or NTSC/PAL, and under it the frame rate or
+  standard, colour, dithering, television and flicker filter where they apply; without a setting
+  the console's own mode, PAL or NTSC; a new mode
   stays only when kept within 15 s, and Start + Select held at power-on goes back to the
   console's own SD mode), Network (`mc0:/MXOS/IPCONFIG.DAT`, used from the kernel's next start),
   Storage (where it looks for games), Controllers (which ports have a pad; the motors tried),
   System (the shell, the kernel's version, `SERVICES.CFG`).
+- **Files** (`files/`, an app in Apps: `make files` makes `PS2MAX/files/` with `FILES.ELF` and its
+  `game.ini`, for a device's `PS2MAX/`): the memory cards, the USB drive, the HDD and the host;
+  select (square), and from the actions (triangle) copy, cut, paste, rename, delete, a new folder,
+  select all; names from an on-screen keyboard; long jobs with their progress, circle stops
+  them. Until mxio can say what a directory entry is, rename and give free space, a folder is
+  what opens as one, rename and move are a copy and a delete, and no free space is shown.
+  Cross on an ELF starts it (Files waits; a kernel of version 24). `make files-shot RUNNER=... FILES_ARGS="dev=4 path=PS2MAX ops"` runs every
+  action once in PCSX2.
 - **Notifications**: cards top right; a pad that comes or goes, a device found, a game that
   ended badly. Urgent ones stay until a button.
 - **Power-on**: a point of light, a horizon, the mark, then the shelf.
@@ -47,7 +60,7 @@ make font         # font/font_<shape>.z and font.h from font/src
 make usbcopy      # tools/usbcopy.c: files to and from the USB stick through the host link
 ```
 
-Arguments (for tests): `dev=host`, `dev=hostonly`, `screen=home|hub|settings`, `right=<n>`,
+Arguments (for tests): `dev=host`, `dev=hostonly`, `screen=home|hub|settings`, `sec=<n>` (the section, 0 Games .. 4 Settings), `right=<n>`,
 `note`, `launch` (start the game in focus at once), `mode=1080i|ntsc|pal|sd`, `rgb16`,
 `shot=<frames>` (the picture to
 `host:mxshell.tga`, then the end marker), `end=<frames>` (the end marker after that many

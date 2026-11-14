@@ -18,15 +18,47 @@
 static int focus;
 static struct spring fpos, shift;
 
-int focus_game(void) { return focus < ngames ? focus : -1; }
+int home_sec;
+const char *const sec_name[NSECS] = {"Games", "Media", "Emulation", "Apps", "Settings"};
+static int focus_of[NSECS];
 
-/* the row: the games, then Settings */
-static int ntiles(void) { return ngames + 1; }
+/* the row of the section: the programs that name it (Settings: its pages) */
+static int row[MAX_GAMES], nrow, row_sec = -1, row_n = -1;
+static int ntiles(void) {
+  if (row_sec != home_sec || row_n != ngames) {
+    nrow = 0;
+    for (int i = 0; i < ngames; i++)
+      if (games[i].sec == home_sec)
+        row[nrow++] = i;
+    row_sec = home_sec, row_n = ngames;
+  }
+  return nrow;
+}
+/* the game of tile i, -1: none */
+static int game_at(int i) { return i >= 0 && i < ntiles() ? row[i] : -1; }
+
+int focus_game(void) { return game_at(focus); }
 
 void home_enter(void) {
-  if (focus >= ntiles())
-    focus = 0;
+  int n = ntiles();
+  if (focus >= n)
+    focus = n ? n - 1 : 0;
   fpos.x = (float)focus, fpos.v = 0;
+}
+
+static void section_go(int d) {
+  int s = home_sec + d;
+  if (s < 0 || s >= NSECS)
+    return;
+  if (s == SEC_SETTINGS) {
+    /* Settings is its own screen, the last section */
+    settings_enter();
+    return;
+  }
+  focus_of[home_sec] = focus;
+  home_sec = s, focus = focus_of[s];
+  home_enter();
+  shift.x = 0, shift.v = 0;
 }
 
 static float lit_of(int i) {
@@ -47,10 +79,11 @@ static void layout(int i, struct tile_look *t) {
   t->lit = l;
   /* the row fades out at the right edge */
   t->fade = clampf(1.0f - (x + t->w - (SCR_W - MARGIN * 0.5f)) / 120.0f, 0, 1);
-  if (i < ngames) {
-    t->base = games[i].base;
-    t->tex = games[i].tex;
-    t->tex_u = 1, t->tex_v = games[i].tex_v;
+  int g = game_at(i);
+  if (g >= 0) {
+    t->base = games[g].base;
+    t->tex = games[g].tex;
+    t->tex_u = 1, t->tex_v = games[g].tex_v;
   } else
     t->base = 0x23262C;
 }
@@ -61,7 +94,10 @@ void home_focus_rect(float r[4]) {
   r[0] = t.x, r[1] = t.y, r[2] = t.w, r[3] = t.h;
 }
 
-u32 home_focus_colour(void) { return focus < ngames ? games[focus].base : 0x23262C; }
+u32 home_focus_colour(void) {
+  int g = game_at(focus);
+  return g >= 0 ? games[g].base : 0x23262C;
+}
 
 /* k: the tile on its way to the hub's slab (0 on the shelf), where its
    text has more room around it */
@@ -70,12 +106,13 @@ static void tile_text(int i, const struct tile_look *t, float k) {
   if (t->fade < 0.05f || t->tex)
     return;
   float a = t->fade * (0.45f + 0.55f * t->lit);
-  const char *name = i < ngames ? games[i].title : "Settings";
+  int g = game_at(i);
+  const char *name = g >= 0 ? games[g].title : "";
   int size = t->lit > 0.5f ? FONT_TITLE : FONT_TILE;
   float pad = 14 + 2 * t->lit + 4 * k;
   d_text_fit(size, FONT_BODY, t->x + pad, t->y + pad + (t->lit > 0.5f ? 26 : 20) + 4 * k, t->w - 2 * pad, name,
              argb(C_WHITE, a));
-  const char *sub = i < ngames ? (games[i].type[0] ? games[i].type : "Game") : "System";
+  const char *sub = g >= 0 ? (games[g].type[0] ? games[g].type : home_sec == SEC_GAMES ? "Game" : sec_name[home_sec]) : "System";
   d_label(t->x + 16 + 4 * k, t->y + t->h - 16 - 6 * k, sub, argb(C_WHITE, 0.7f * a));
 }
 
@@ -83,21 +120,24 @@ static void caption(float x) {
   float y = 488;
   char meta[96];
   const char *kick, *title, *act;
-  if (focus < ngames) {
-    const struct game *g = &games[focus];
+  int g = game_at(focus);
+  if (g >= 0) {
+    const struct game *gm = &games[g];
     char where[24];
-    game_path(where, sizeof where, focus, "");
+    game_path(where, sizeof where, g, "");
     char *colon = strchr(where, ':');
     if (colon)
       colon[1] = 0;
-    kick = "Play";
-    title = g->title;
-    mx_snprintf(meta, sizeof meta, "%s%s%s%s%s", g->year, g->year[0] ? DOT : "", g->type,
-                g->type[0] ? DOT : "", where);
-    act = "Play";
+    kick = home_sec == SEC_APPS || home_sec == SEC_MEDIA ? "Open" : "Play";
+    title = gm->title;
+    mx_snprintf(meta, sizeof meta, "%s%s%s%s%s", gm->year, gm->year[0] ? DOT : "", gm->type,
+                gm->type[0] ? DOT : "", where);
+    act = kick;
   } else {
-    kick = "System", title = "Settings", act = "Open";
-    mx_snprintf(meta, sizeof meta, "Video" DOT "Network" DOT "Storage" DOT "Controllers");
+    /* a section with nothing in it */
+    kick = sec_name[home_sec], title = games_searching ? "Looking" : "Nothing here yet", act = 0;
+    mx_snprintf(meta, sizeof meta, "Programs with section=%s in their game.ini show here",
+                home_sec == SEC_MEDIA ? "media" : home_sec == SEC_EMU ? "emulation" : "apps");
   }
   if (x > SCR_W - MARGIN - 420)
     x = SCR_W - MARGIN - 420;
@@ -105,8 +145,9 @@ static void caption(float x) {
   d_text_fit(FONT_DISP, FONT_TITLE, x - 2, y + 54, SCR_W - MARGIN - x, title, argb(C_WHITE, 1));
   d_text(FONT_BODY, x, y + 86, meta, argb(C_DIM, 1));
   float bx = x;
-  bx += d_button(bx, y + 104, SYM_CROSS, act, 1) + 12;
-  if (focus < ngames)
+  if (act)
+    bx += d_button(bx, y + 104, SYM_CROSS, act, 1) + 12;
+  if (g >= 0)
     d_button(bx, y + 104, SYM_TRIANGLE, "Details", 0);
 }
 
@@ -186,7 +227,8 @@ void home_scene(float k, const struct tile_look *slab) {
     if (t.fade > FADE_MIN && i != focus)
       d_tile(&t);
   }
-  d_tile(&ft);
+  if (n > 0)
+    d_tile(&ft);
   d_begin_2d();
   for (int i = 0; i < n && !hub; i++) {
     layout(i, &t);
@@ -194,16 +236,18 @@ void home_scene(float k, const struct tile_look *slab) {
     if (i != focus)
       tile_text(i, &t, 0);
   }
-  tile_text(focus, &ft, k);
+  if (n > 0)
+    tile_text(focus, &ft, k);
   if (k > 0.4f)
     return;
   /* Home's own text: gone before the hub's comes */
   ui_fade = clampf(1 - 2.5f * k, 0, 1);
   caption(fx);
 
-  static const char *const hints_play[] = {SYM_CROSS, "Play", SYM_TRIANGLE, "Details", "R1", "Settings", 0};
-  static const char *const hints_sys[] = {SYM_CROSS, "Open", 0};
-  hints_draw(focus < ngames ? hints_play : hints_sys);
+  static const char *const hints_play[] = {SYM_CROSS, "Open", SYM_TRIANGLE, "Details", "L1", "Section", "R1", "Section", 0};
+  static const char *const hints_sys[] = {SYM_CROSS, "Open", "L1", "Section", "R1", "Section", 0};
+  static const char *const hints_none[] = {"L1", "Section", "R1", "Section", 0};
+  hints_draw(n == 0 ? hints_none : game_at(focus) >= 0 ? hints_play : hints_sys);
   ui_fade = 1;
   if (!slab)
     status_draw();
@@ -215,14 +259,14 @@ void home_input(void) {
     focus--;
   if (pad_pressed & MX_PAD_RIGHT && focus + 1 < n)
     focus++;
-  if (pad_pressed & MX_PAD_CROSS) {
-    if (focus < ngames)
-      screen = SCR_LAUNCH;
-    else
-      settings_enter();
-  }
-  if (pad_pressed & MX_PAD_TRIANGLE && focus < ngames)
-    screen = SCR_HUB;
+  if (pad_pressed & MX_PAD_L1)
+    section_go(-1);
   if (pad_pressed & MX_PAD_R1)
-    settings_enter();
+    section_go(1);
+  if (pad_pressed & MX_PAD_CROSS && n > 0) {
+    if (game_at(focus) >= 0)
+      screen = SCR_LAUNCH;
+  }
+  if (pad_pressed & MX_PAD_TRIANGLE && game_at(focus) >= 0)
+    screen = SCR_HUB;
 }

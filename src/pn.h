@@ -24,6 +24,16 @@ enum { SHAPE_HD, SHAPE_HD540, SHAPE_P720, SHAPE_P576, SHAPE_P480, SHAPE_NTSC, SH
        /* the SD modes at 16:9 (video.aspect): anamorphic, 1280 units across 640 pixels */
        SHAPE_P576W, SHAPE_P480W, SHAPE_NTSCW, SHAPE_PALW };
 extern int video_mode, video_shape;
+/* the modes (video.c): the setting's key, its name, libgl's mode, the
+   shape of its pixels (the font atlas), 16:9, frames a second */
+struct vmode {
+  const char *key, *name;
+  int gl, shape, wide, hz;
+};
+extern const struct vmode vmodes[VM_MODES];
+int video_choice(void);    /* video.mode; without it the console's own, PAL or NTSC */
+int video_sd_wide(void);   /* video.aspect 16:9 (the SD modes) */
+int video_deflicker(void); /* video.deflicker (NTSC, PAL) */
 extern float px_x, px_y; /* pixels a unit, across and down */
 #define MARGIN 96        /* left and right */
 #define TOP 58           /* the status line's baseline */
@@ -141,7 +151,12 @@ struct game {
   int tex;   /* the cover's texture, 0 none */
   float tex_v; /* the part of its height the cover takes */
   u32 size_kb;
+  u8 sec;    /* the section it is shown in (game.ini: section=media|emulation|apps), SEC_GAMES */
 };
+/* Home's sections (L1 and R1 go through them): what a program is, and Settings */
+enum { SEC_GAMES, SEC_MEDIA, SEC_EMU, SEC_APPS, SEC_SETTINGS, NSECS };
+extern const char *const sec_name[NSECS];
+extern int home_sec;
 extern struct game games[MAX_GAMES];
 extern int ngames;
 /* the devices the shell looks for games on */
@@ -149,6 +164,7 @@ enum { DEV_USB, DEV_HDD, DEV_HOST, NDEVS };
 extern const char *const dev_root[NDEVS];
 extern const char *const dev_name[NDEVS];
 extern int dev_found[NDEVS]; /* drivers loaded and PS2MAX/ seen */
+int dev_drivers(int d); /* the device's drivers on the IOP (drivers.c): 0, or -1 */
 /* a step of looking (call a few times a second): 1 when done */
 int games_step(void);
 void games_restart(void);

@@ -52,7 +52,7 @@ $(MAXSDK_OUT)/libc/glue.c.o $(MAXSDK_OUT)/libmxc.a $(MAXSDK_OUT)/librt.a &: $(MX
 SCFLAGS   = $(filter-out -ffreestanding,$(CFLAGS)) -MMD -nostdlibinc -isystem $(PICOLIBC)/include \
             -I$(MXGL_INC) -ffast-math -cl-single-precision-constant
 
-SRCS = main draw font tile games home hub settings settings_store toast dither
+SRCS = main draw font tile games home hub settings settings_store toast dither video drivers
 # zlib's inflate (libs/zlib), for the font atlases
 ZLIB   ?= $(PS2MAX)/libs/zlib
 ZSRCS   = inflate inftrees inffast zutil adler32 uncompr
@@ -110,6 +110,31 @@ $(OUT)/fakegame.elf: $(HERE)/tests/fakegame.c $(MX_LIB) $(MX_CRT0) $(MX_LD) $(LI
 standalone:
 	$(MAKE) MX_TARGET=standalone
 
+# Files, an app of the shell (files/files.c, in its Apps section): the
+# shell's drawing, font, video mode and notifications, a main loop of its
+# own. $(OUT)/PS2MAX/files: FILES.ELF and its game.ini, for
+# <device>/PS2MAX/files/
+FILES_SRCS = draw font dither video settings_store toast drivers
+FILES_OBJS = $(FILES_SRCS:%=$(OUT)/obj/%.o) $(OUT)/obj/font_bin.o $(ZSRCS:%=$(OUT)/obj/zlib/%.o) $(OUT)/obj/files.o
+$(OUT)/obj/files.o: $(HERE)/files/files.c
+	@mkdir -p $(dir $@)
+	$(CC) $(SCFLAGS) -I$(HERE)/src -c $< -o $@
+$(OUT)/files.elf: $(FILES_OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(MX_LIB) $(MX_CRT0) $(MX_LD) $(LIBC_LIBS)
+	$(call link,$@,$(MX_CRT0) $(FILES_OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(LIBC_LIBS))
+$(OUT)/PS2MAX/files/FILES.ELF: $(OUT)/files.elf $(HERE)/files/game.ini
+	@mkdir -p $(dir $@)
+	$(LLVM)/llvm-strip -o $@ $<
+	cp $(HERE)/files/game.ini $(dir $@)
+files: $(OUT)/PS2MAX/files/FILES.ELF
+
+# Files on PCSX2: a picture (FILES_ARGS: dev=<n> path=<dir> sel=<n> mark=<n> menu keys)
+files-shot:
+	@test -n "$(RUNNER)" || { echo "make files-shot: set RUNNER (see the Makefile)"; exit 2; }
+	$(MAKE) MX_TARGET=standalone files
+	cp $(PS2MAX)/build/apps/mxshell-sa/files.elf $(PS2MAX)/build/pcsx2-test/files.elf
+	echo "shot=$(SHOT_FRAMES) $(FILES_ARGS)" > $(PS2MAX)/build/pcsx2-test/files.txt
+	PCSX2_RENDERER=sw $(RUNNER) $(PS2MAX)/build/pcsx2-test/files.elf 240
+
 # a picture on PCSX2: ARGS for more (screen=hub, screen=settings, right=<n>, note)
 # RUNNER: a command that starts an ELF in PCSX2 (headless) and stops it at
 # the end marker "@@PS2TEST_END@@ status=N"; args: the ELF, a timeout in s
@@ -126,4 +151,4 @@ font:
 clean:
 	rm -rf $(OUT)
 
-.PHONY: all standalone shot font clean fakegame usbcopy
+.PHONY: all standalone shot font clean fakegame usbcopy files files-shot

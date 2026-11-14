@@ -6,6 +6,7 @@
      dev=host        look for games on host: too (ps2client's directory)
      screen=hub|settings|boot   start on that screen
      right=<n>       the focus n tiles to the right
+     sec=<n>         start in that section (0 Games .. 4 Settings)
      walk            (tests) the focus a tile on every 20 frames, there and back
      refl=a|b|c      (tests) the reflection's look
      aspect=4:3|16:9 the television's shape in the SD modes
@@ -40,7 +41,6 @@
 MX_CORE_HEAP(512 << 10);
 
 int screen = SCR_BOOT;
-u32 ticks;
 u32 pad_pressed, pad_held;
 static int pad_on, pads_seen[2], input_wait;
 static u32 screen_at, back_at;
@@ -48,16 +48,16 @@ static u32 screen_at, back_at;
 void status_draw(void) {
   /* the sections, the active one with the lamp's dot under it */
   float x = MARGIN;
-  static const char *const tabs[2] = {"Play", "Settings"};
-  for (int i = 0; i < 2; i++) {
-    int on = (i == 0) == (screen != SCR_SETTINGS);
-    float w = d_text_w(FONT_BODY, tabs[i]);
-    d_text(FONT_BODY, x, TOP, tabs[i], argb(on ? C_WHITE : C_FAINT, 1));
+  int active = screen == SCR_SETTINGS ? SEC_SETTINGS : home_sec;
+  for (int i = 0; i < NSECS; i++) {
+    int on = i == active;
+    float w = d_text_w(FONT_BODY, sec_name[i]);
+    d_text(FONT_BODY, x, TOP, sec_name[i], argb(on ? C_WHITE : C_FAINT, 1));
     if (on) {
       d_glow(x + w / 2, TOP + 12, 8, 5, argb(C_LAMP, 0.6f));
       d_rect(x + w / 2 - 2, TOP + 10, x + w / 2 + 2, TOP + 14, argb(C_LAMP, 1), argb(C_LAMP, 1));
     }
-    x += w + 34;
+    x += w + 30;
   }
   /* the pads: a ring per port, lit when a pad is there */
   float rx = SCR_W - MARGIN - 15;
@@ -69,20 +69,6 @@ void status_draw(void) {
     float w = d_label_w(s) - 2;
     d_label(rx - w / 2, cy + text_mid(FONT_LABEL) * 1.15f, s, argb(on ? C_WHITE : C_FAINT, 1));
     rx -= 42;
-  }
-}
-
-void hints_draw(const char *const *p) {
-  float w = 0;
-  for (int i = 0; p[i]; i += 2) {
-    int sym = (unsigned char)p[i][0] < 8;
-    w += (sym ? d_text_w(FONT_BODY, p[i]) : d_label_w(p[i])) + 8 + d_text_w(FONT_SMALL, p[i + 1]) + 26;
-  }
-  float x = SCR_W - MARGIN - w + 26, y = SCR_H - 36;
-  for (int i = 0; p[i]; i += 2) {
-    int sym = (unsigned char)p[i][0] < 8;
-    x = sym ? d_text(FONT_BODY, x, y, p[i], argb(C_DIM, 1)) : d_label(x, y - 1, p[i], argb(C_DIM, 1));
-    x = d_text(FONT_SMALL, x + 8, y, p[i + 1], argb(C_DIM, 1)) + 26;
   }
 }
 
@@ -125,23 +111,31 @@ void boot_draw(void) {
   }
 }
 
-/* ---- starting a game ---- */
-/* the lit tile grows to the whole screen and goes dark; then the game */
+/* ---- starting a game ----
+   The lit tile goes to the middle of the screen as a poster (the hub's
+   slab, upright and larger) while the rest of the shelf goes dark; a line
+   under it fills while the game is made ready; then black, and the game */
+#define LAUNCH_T 1.05f
 static void launch_draw(void) {
   float t = (float)(ticks - screen_at) * frame_dt;
   float k = clampf(t / 0.45f, 0, 1);
-  float e = k * k * (3 - 2 * k);
-  home_draw();
+  k = k * k * (3 - 2 * k);
+  struct tile_look poster;
+  memset(&poster, 0, sizeof poster);
+  poster.h = 470, poster.w = 470 / 1.41f;
+  poster.x = (SCR_W - poster.w) / 2, poster.y = 84;
+  poster.lit = 1, poster.fade = 1;
+  home_scene(k, &poster);
   d_begin_2d();
-  d_rect(0, 0, SCR_W, SCR_H, argb(C_INK, 0.85f * e), argb(C_INK, 0.85f * e));
-  float r[4];
-  home_focus_rect(r);
-  float x0 = r[0] * (1 - e), y0 = r[1] * (1 - e), x1 = (r[0] + r[2]) * (1 - e) + SCR_W * e,
-        y1 = (r[1] + r[3]) * (1 - e) + SCR_H * e;
-  u32 c = home_focus_colour();
-  float dark = 1 - e;
-  d_rect(x0, y0, x1, y1, argb(c, dark), argb(C_INK, 1));
-  d_glow((x0 + x1) * 0.5f, y0, (x1 - x0) * 0.6f, 60 + 200 * e, argb(C_LAMP, 0.18f * dark));
+  float p = clampf((t - 0.4f) / 0.5f, 0, 1), lw = 300, lx = (SCR_W - lw) / 2, ly = 596;
+  if (k > 0.99f) {
+    d_rect(lx, ly, lx + lw, ly + 3, argb(C_WHITE, 0.14f), argb(C_WHITE, 0.14f));
+    d_rect(lx, ly, lx + lw * p, ly + 3, argb(C_LAMP, 1), argb(C_LAMP, 1));
+    d_glow(lx + lw * p, ly + 1.5f, 14, 10, argb(C_LAMP, 0.5f));
+  }
+  float b = clampf((t - 0.9f) / 0.15f, 0, 1);
+  if (b > 0)
+    d_rect(0, 0, SCR_W, SCR_H, argb(C_INK, b), argb(C_INK, b));
 }
 
 static void launch(void) {
@@ -261,6 +255,11 @@ int main(int argc, char **argv) {
         shot = shot * 10 + *s - '0';
     else if (!strncmp(a, "right=", 6))
       right = a[6] - '0';
+    else if (!strncmp(a, "sec=", 4)) {
+      home_sec = a[4] - '0';
+      if (home_sec >= SEC_SETTINGS) /* Settings is its own screen */
+        home_sec = SEC_APPS, start = SCR_SETTINGS;
+    }
     else if (!strncmp(a, "mode=", 5))
       cfg_set("video.mode", a + 5);
     else if (!strncmp(a, "aspect=", 7))
@@ -444,7 +443,7 @@ int main(int argc, char **argv) {
       cfg_set("video.mode", m);
       video_apply();
     }
-    if (screen == SCR_LAUNCH && ticks - screen_at > 30)
+    if (screen == SCR_LAUNCH && (float)(ticks - screen_at) * frame_dt > LAUNCH_T)
       launch();
     if (end && ticks == (u32)end) {
       MX_TEST_END(0);

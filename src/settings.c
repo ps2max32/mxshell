@@ -6,6 +6,7 @@
      System       the shell, the kernel, the services the kernel starts
    The rest (battery, light colour, network status, time) comes with the
    OS's parts (O1-O8). */
+#include <GL/gl.h>
 #include <mx/debug.h>
 #include <mx/kernel.h>
 #include <mx/pad.h>
@@ -70,10 +71,15 @@ static void ip_save(void) {
   toast(N_INFO, "Network address saved", "Used from the next start", 0);
 }
 
+static int vrows(int *r);
+
 /* ---- the items of each page ---- */
 static int nitems(void) {
   switch (page) {
-  case P_VIDEO: return VM_MODES + 5;
+  case P_VIDEO: {
+    int r[8];
+    return vrows(r);
+  }
   case P_NETWORK: return 4;
   case P_STORAGE: return NDEVS + 1;
   case P_PADS: return 2;
@@ -81,81 +87,41 @@ static int nitems(void) {
   }
 }
 
-/* the modes: the setting's key, its name, libgl's mode, the shape of its
-   pixels (the font atlas), 16:9, frames a second */
+/* the Video page: a family of modes, and under it what varies in it (the
+   rate, or the standard); the rows that only some families have */
+enum { FAM_1080, FAM_720, FAM_EDTV, FAM_SD, NFAMS };
 static const struct {
-  const char *key, *name;
-  int gl, shape, wide, hz;
-} vmodes[VM_MODES] = {
-    [VM_1080I] = {"1080i", "1080i  1920 x 1080, 60 Hz", MXGL_1080I, SHAPE_HD, 1, 60},
-    [VM_1080I50] = {"1080i50", "1080i  1920 x 1080, 50 Hz", MXGL_1080I50, SHAPE_HD, 1, 50},
-    [VM_1080P30] = {"1080p30", "1080p  1920 x 1080, 30 Hz", MXGL_1080P30, SHAPE_HD540, 1, 30},
-    [VM_720P] = {"720p", "720p  1280 x 720, 60 Hz", MXGL_720P, SHAPE_P720, 1, 60},
-    [VM_720P50] = {"720p50", "720p  1280 x 720, 50 Hz", MXGL_720P50, SHAPE_P720, 1, 50},
-    [VM_576P] = {"576p", "576p  640 x 576, 50 Hz", MXGL_576P, SHAPE_P576, 0, 50},
-    [VM_480P] = {"480p", "480p  640 x 480, 60 Hz", MXGL_480P, SHAPE_P480, 0, 60},
-    [VM_NTSC] = {"ntsc", "NTSC  640 x 448, 60 Hz", MXGL_NTSC, SHAPE_NTSC, 0, 60},
-    [VM_PAL] = {"pal", "PAL  640 x 512, 50 Hz", MXGL_PAL, SHAPE_PAL, 0, 50},
+  const char *name, *size;
+  int n, mode[3];
+  const char *sub[3];
+} fams[NFAMS] = {
+    {"1080", "1920 x 1080", 3, {VM_1080I, VM_1080I50, VM_1080P30}, {"60i", "50i", "30p"}},
+    {"720p", "1280 x 720", 2, {VM_720P, VM_720P50}, {"60p", "50p"}},
+    {"480p/576p", "640 x 480 / 576", 2, {VM_480P, VM_576P}, {"NTSC  60p", "PAL  50p"}},
+    {"NTSC/PAL", "640 x 448 / 512", 2, {VM_NTSC, VM_PAL}, {"NTSC  60i", "PAL  50i"}},
 };
-int video_mode = VM_1080I, video_shape = SHAPE_HD;
-float scr_w = 1280, px_x = 1.5f, px_y = 1.5f;
+static int vfam, vsub; /* the one being chosen (not yet in use) */
 
-/* video.aspect: the television's shape in the SD modes (NTSC, PAL, 480p,
-   576p), 4:3 or 16:9 (anamorphic: the same 640 pixels across a wide
-   screen); HD is always 16:9 */
-static int sd_wide(void) { return !strcmp(cfg_get("video.aspect", "4:3"), "16:9"); }
-
-/* video.deflicker: in NTSC and PAL, a softer picture against flicker
-   (libgl's mxgl_deflicker: the PS2's two read circuits a line apart,
-   blended). It needs full-height buffers, so those modes are then drawn
-   without beam racing (16-bit colour); off, beam racing draws every line of
-   the picture, for the television's deinterlacer */
-static int deflicker(void) { return !strcmp(cfg_get("video.deflicker", "off"), "on"); }
-
-static int video_choice(void) {
-  /* without a setting "sd", the console's own mode from its region (PAL or
-     NTSC): every television and cable shows that */
-  const char *v = cfg_get("video.mode", "sd");
-  for (int i = 0; i < VM_MODES; i++)
-    if (!strcmp(v, vmodes[i].key))
-      return i;
-  return mx_video_default() == &mx_video_pal ? VM_PAL : VM_NTSC;
+static void fam_of(int m, int *f, int *sub) {
+  for (int i = 0; i < NFAMS; i++)
+    for (int j = 0; j < fams[i].n; j++)
+      if (fams[i].mode[j] == m) {
+        *f = i, *sub = j;
+        return;
+      }
+  *f = FAM_SD, *sub = 0;
 }
 
-/* the mode from the settings: video.mode (a key of vmodes, or sd), and
-   video.depth (32: 24-bit colour where it fits, 16: dithered) */
-void video_apply(void) {
-  int m = video_choice();
-  int laced = m == VM_NTSC || m == VM_PAL, soft = laced && deflicker();
-  int flags = cfg_get("video.beam", "1")[0] == '1' && !soft ? MXGL_BEAM : 0;
-  if (flags && cfg_get("video.depth", "32")[0] == '3')
-    flags |= MXGL_RGB24;
-  mxgl_set_mode(vmodes[m].gl | flags);
-  mxgl_deflicker(soft);
-  /* libgl falls back to the console's own mode for one it cannot set */
-  int got = mxgl_mode();
-  video_mode = m;
-  if (got != vmodes[m].gl)
-    video_mode = got == MXGL_PAL ? VM_PAL : VM_NTSC;
-  video_shape = vmodes[video_mode].shape;
-  int wide = vmodes[video_mode].wide;
-  if (!wide && sd_wide()) {
-    static const int w16[] = {[SHAPE_P576] = SHAPE_P576W, [SHAPE_P480] = SHAPE_P480W, [SHAPE_NTSC] = SHAPE_NTSCW,
-                              [SHAPE_PAL] = SHAPE_PALW};
-    video_shape = w16[video_shape], wide = 1;
-  }
-  int w, h;
-  mxgl_screen(&w, &h);
-  scr_w = wide ? 1280.0f : 960.0f;
-  px_x = (float)w / scr_w, px_y = (float)h / 720.0f;
-  if (video_shape == SHAPE_HD540)
-    px_y = 0.75f; /* 1080p30: drawn as 540 lines, each shown twice */
-  mxgl_window((int)scr_w, 720);
-  frame_dt = 1.0f / (float)vmodes[video_mode].hz;
-  /* 16-bit colour is dithered (draw.c, dither.c) */
-  dither_bias = mxgl_mode_flags() & MXGL_RGB24 ? 0 : 4;
-  dither_apply();
-  text_init();
+/* the rows of the Video page */
+enum { VR_FAMILY, VR_RATE, VR_USE, VR_COLOUR, VR_DITHER, VR_DTEST, VR_TV, VR_FLICKER };
+static int vrows(int *r) {
+  int n = 0;
+  r[n++] = VR_FAMILY, r[n++] = VR_RATE, r[n++] = VR_USE, r[n++] = VR_COLOUR, r[n++] = VR_DITHER, r[n++] = VR_DTEST;
+  if (vfam == FAM_EDTV || vfam == FAM_SD)
+    r[n++] = VR_TV;
+  if (vfam == FAM_SD)
+    r[n++] = VR_FLICKER;
+  return n;
 }
 
 /* a new mode is kept only when it is confirmed within 15 s: a television
@@ -193,6 +159,7 @@ void settings_pick(int n) { in_page = 1, item = n; }
 
 void settings_enter(void) {
   screen = SCR_SETTINGS;
+  fam_of(video_choice(), &vfam, &vsub);
   in_page = 0, item = 0, edit = 0;
   if (!ip_loaded)
     ip_load();
@@ -220,29 +187,96 @@ static void line(float x0, float x1, float y, const char *label, const char *val
 
 static void note(float x, float y, const char *s) { d_text(FONT_SMALL, x, y, s, argb(C_FAINT, 1)); }
 
-static void page_video(float x0, float x1, float y) {
-  int c = video_choice();
-  /* nine modes and five settings: closer rows */
-  const float row = 30;
-  for (int i = 0; i < VM_MODES; i++) {
-    float yy = y + row * i;
-    int chosen = in_page && item == i;
-    if (chosen)
-      d_rect(x0 - 18, yy - text_mid(FONT_BODY) - row * 0.5f, x1 + 18, yy - text_mid(FONT_BODY) + row * 0.5f,
-             argb(C_WHITE, 0.07f), argb(C_WHITE, 0.03f));
-    d_text(FONT_BODY, x0, yy, vmodes[i].name, argb(i == c ? C_WHITE : C_DIM, 1));
-    if (i == c)
-      d_text(FONT_BODY, x1 - d_text_w(FONT_BODY, "On"), yy, "On", argb(C_LAMP, 1));
+/* choices side by side at the right, the chosen one a pill; returns the left edge */
+static float seg(float x1, float y, const char *const *l, int n, int on, int lit) {
+  float x = x1;
+  for (int i = n - 1; i >= 0; i--) {
+    float w = d_text_w(FONT_SMALL, l[i]), x0 = x - w - 32;
+    float mid = y - text_mid(FONT_SMALL);
+    if (i == on)
+      d_pill(x0, mid - 17, x, mid + 17, lit ? C_WHITE : 0x3A3D44);
+    d_text(FONT_SMALL, x0 + 16, y, l[i], argb(i == on ? (lit ? C_INK : C_WHITE) : C_DIM, 1));
+    x = x0 - 8;
   }
-  int deep = cfg_get("video.depth", "32")[0] == '3';
-  float yy = y + row * VM_MODES + 8;
-  pitch = 40;
-  line(x0, x1, yy, "Colour", deep ? "32-bit where it fits" : "16-bit", in_page && item == VM_MODES, 1);
-  line(x0, x1, yy + 40, "Dithering (16-bit colour)", dither_name(dither_choice()), in_page && item == VM_MODES + 1, 1);
-  line(x0, x1, yy + 80, "Dithering test picture", 0, in_page && item == VM_MODES + 2, 1);
-  line(x0, x1, yy + 120, "Television (SD modes)", sd_wide() ? "16:9" : "4:3", in_page && item == VM_MODES + 3, 1);
-  line(x0, x1, yy + 160, "Flicker filter (NTSC, PAL)", deflicker() ? "On" : "Off", in_page && item == VM_MODES + 4, 1);
-  pitch = ROW;
+  return x;
+}
+
+static void vrow(float x0, float x1, float y, const char *label, const char *sub, int chosen) {
+  float mid = y - text_mid(FONT_BODY);
+  if (chosen) {
+    d_rect(x0 - 18, mid - 26, x1 + 18, mid + 26, argb(C_WHITE, 0.07f), argb(C_WHITE, 0.03f));
+    d_rect(x0 - 18, mid - 26, x1 + 18, mid - 25, argb(C_LAMP, 0.5f), argb(C_LAMP, 0.5f));
+  }
+  d_text(FONT_BODY, x0, sub ? y - 9 : y, label, argb(C_WHITE, 1));
+  if (sub)
+    d_text(FONT_SMALL, x0, y + 15, sub, argb(C_FAINT, 1));
+  d_rect(x0, mid + 26, x1, mid + 27, argb(C_WHITE, 0.08f), argb(C_WHITE, 0.08f));
+}
+
+static void page_video(float x0, float x1, float y) {
+  int use = video_choice(), uf, us;
+  fam_of(use, &uf, &us);
+  int r[8], n = vrows(r), cur = in_page ? r[item < n ? item : 0] : -1;
+  /* the families: four cards, the one being chosen lit, the one in use marked */
+  float gap = 12, cw = (x1 - x0 - gap * 3) / 4, ch = 74, cy = y - 12;
+  for (int f = 0; f < NFAMS; f++) {
+    float cx = x0 + (cw + gap) * f;
+    int on = f == vfam, lit = on && cur == VR_FAMILY;
+    d_rect(cx, cy, cx + cw, cy + ch, argb(C_WHITE, on ? (lit ? 0.12f : 0.08f) : 0.035f), argb(C_WHITE, on ? 0.04f : 0.015f));
+    if (on)
+      d_rect(cx, cy, cx + cw, cy + 2, argb(C_LAMP, lit ? 1 : 0.5f), argb(C_LAMP, lit ? 1 : 0.5f));
+    d_text_fit(FONT_BUTTON, FONT_SMALL, cx + 12, cy + 34, cw - 20, fams[f].name, argb(on ? C_WHITE : C_DIM, 1));
+    const char *sub = f == uf ? "In use" : fams[f].size;
+    if (f == uf || cw >= 150) /* 4:3: the sizes do not fit, only "In use" */
+      d_text(FONT_SMALL, cx + 12, cy + 60, sub, argb(f == uf ? C_LAMP : C_FAINT, 1));
+  }
+  float yy = cy + ch + 44, step = 50;
+  for (int i = 1; i < n; i++, yy += step) {
+    int chosen = cur == r[i];
+    switch (r[i]) {
+    case VR_RATE:
+      vrow(x0, x1, yy, "Frame rate", 0, chosen);
+      seg(x1, yy, fams[vfam].sub, fams[vfam].n, vsub, chosen);
+      break;
+    case VR_USE: {
+      int m = fams[vfam].mode[vsub];
+      char l[48];
+      mx_snprintf(l, sizeof l, m == use ? "In use: %s" : "Try %s", vmodes[m].name);
+      vrow(x0, x1, yy, l, m == use ? 0 : "Kept when you confirm it within 15 s", chosen);
+      break;
+    }
+    case VR_COLOUR: {
+      static const char *const l[2] = {"32-bit where it fits", "16-bit"};
+      vrow(x0, x1, yy, "Colour", vfam == FAM_1080 ? "1080 is always 16-bit: 32 does not fit" : 0, chosen);
+      if (vfam == FAM_1080)
+        seg(x1, yy, l + 1, 1, 0, chosen);
+      else
+        seg(x1, yy, l, 2, cfg_get("video.depth", "32")[0] == '3' ? 0 : 1, chosen);
+      break;
+    }
+    case VR_DITHER: {
+      const char *l[1] = {dither_name(dither_choice())};
+      vrow(x0, x1, yy, "Dithering", "16-bit colour", chosen);
+      seg(x1, yy, l, 1, 0, chosen);
+      break;
+    }
+    case VR_DTEST:
+      vrow(x0, x1, yy, "Dithering test picture", 0, chosen);
+      break;
+    case VR_TV: {
+      static const char *const l[2] = {"4:3", "16:9"};
+      vrow(x0, x1, yy, "Television", "The shape of the picture", chosen);
+      seg(x1, yy, l, 2, video_sd_wide(), chosen);
+      break;
+    }
+    case VR_FLICKER: {
+      static const char *const l[2] = {"Off", "On"};
+      vrow(x0, x1, yy, "Flicker filter", "Softer, against flicker on interlaced lines", chosen);
+      seg(x1, yy, l, 2, video_deflicker(), chosen);
+      break;
+    }
+    }
+  }
 }
 
 static void page_network(float x0, float x1, float y) {
@@ -350,7 +384,7 @@ void settings_draw(void) {
   d_begin_2d();
   room_draw();
 
-  /* the categories: the chosen one a lit pill */
+  /* the pages: the chosen one a lit pill */
   float y0 = 120, step = 52;
   float py = y0 + sel.x * step;
   if (in_page)
@@ -380,7 +414,7 @@ void settings_draw(void) {
     rumble_until = 0;
   }
 
-  static const char *const h_list[] = {SYM_CROSS, "Open", SYM_CIRCLE, "Back", 0};
+  static const char *const h_list[] = {SYM_CROSS, "Open", "L1", "Section", SYM_CIRCLE, "Back", 0};
   static const char *const h_page[] = {SYM_CROSS, "Change", SYM_CIRCLE, "Back", 0};
   static const char *const h_edit[] = {"L R", "Number", "UP DOWN", "Change", SYM_CROSS, "Done", 0};
   if (confirm_from >= 0)
@@ -388,6 +422,70 @@ void settings_draw(void) {
   else
     hints_draw(edit ? h_edit : in_page ? h_page : h_list);
   status_draw();
+}
+
+/* the Video page: left and right change a row's choice, cross uses it */
+static void video_input(u32 p) {
+  int r[8], n = vrows(r);
+  if (item >= n)
+    item = n - 1;
+  int d = p & MX_PAD_RIGHT ? 1 : p & MX_PAD_LEFT ? -1 : 0, x = p & MX_PAD_CROSS;
+  if (p & MX_PAD_CIRCLE) {
+    in_page = 0;
+    return;
+  }
+  switch (r[item]) {
+  case VR_FAMILY:
+    if (d && vfam + d >= 0 && vfam + d < NFAMS) {
+      int uf, us;
+      fam_of(video_choice(), &uf, &us);
+      vfam += d;
+      /* in use: its own rate; else the console's region in SD, the first otherwise */
+      vsub = vfam == uf ? us : vfam >= FAM_EDTV && mx_video_default() == &mx_video_pal ? 1 : 0;
+    }
+    if (x)
+      video_set(fams[vfam].mode[vsub]);
+    break;
+  case VR_RATE:
+    if (d && vsub + d >= 0 && vsub + d < fams[vfam].n)
+      vsub += d;
+    if (x)
+      video_set(fams[vfam].mode[vsub]);
+    break;
+  case VR_USE:
+    if (x)
+      video_set(fams[vfam].mode[vsub]);
+    break;
+  case VR_COLOUR:
+    if ((d || x) && vfam != FAM_1080) {
+      cfg_set("video.depth", cfg_get("video.depth", "32")[0] == '3' ? "16" : "32");
+      cfg_save();
+      video_apply();
+    }
+    break;
+  case VR_DITHER:
+    if (d || x)
+      dither_next(d < 0 ? -1 : 1);
+    break;
+  case VR_DTEST:
+    if (x)
+      screen = SCR_DITHER;
+    break;
+  case VR_TV:
+    if (d || x) {
+      cfg_set("video.aspect", video_sd_wide() ? "4:3" : "16:9");
+      cfg_save();
+      video_apply();
+    }
+    break;
+  case VR_FLICKER:
+    if (d || x) {
+      cfg_set("video.deflicker", video_deflicker() ? "off" : "on");
+      cfg_save();
+      video_apply();
+    }
+    break;
+  }
 }
 
 void settings_input(void) {
@@ -405,7 +503,8 @@ void settings_input(void) {
     if (p & MX_PAD_DOWN && page + 1 < NPAGES)
       page++;
     if (p & (MX_PAD_CROSS | MX_PAD_RIGHT) && nitems())
-      in_page = 1, item = 0;
+      in_page = 1, item = 0, fam_of(video_choice(), &vfam, &vsub);
+    /* L1: the section before (Settings is the last); circle: Home */
     if (p & (MX_PAD_CIRCLE | MX_PAD_L1))
       screen = SCR_HOME;
     return;
@@ -429,33 +528,15 @@ void settings_input(void) {
     item--;
   if (p & MX_PAD_DOWN && item + 1 < nitems())
     item++;
+  if (page == P_VIDEO) {
+    video_input(p);
+    return;
+  }
   if (p & (MX_PAD_CIRCLE | MX_PAD_LEFT))
     in_page = 0;
   if (!(p & MX_PAD_CROSS))
     return;
   switch (page) {
-  case P_VIDEO:
-    if (item < VM_MODES)
-      video_set(item);
-    else if (item == VM_MODES + 1)
-      dither_next(1);
-    else if (item == VM_MODES + 2)
-      screen = SCR_DITHER;
-    else if (item == VM_MODES + 3) {
-      cfg_set("video.aspect", sd_wide() ? "4:3" : "16:9");
-      cfg_save();
-      video_apply();
-    } else if (item == VM_MODES + 4) {
-      cfg_set("video.deflicker", deflicker() ? "off" : "on");
-      cfg_save();
-      video_apply();
-    }
-    else {
-      cfg_set("video.depth", cfg_get("video.depth", "32")[0] == '3' ? "16" : "32");
-      cfg_save();
-      video_apply();
-    }
-    break;
   case P_NETWORK:
     if (item < 3)
       edit = 1;
@@ -476,4 +557,52 @@ void settings_input(void) {
       rumble_until = ticks + 30;
     break;
   }
+}
+
+/* ---- the test picture: ramps of the shell's own colours ---- */
+static void ramp(float y, float h, u32 from, u32 to, const char *label) {
+  float x0 = MARGIN, x1 = SCR_W - MARGIN;
+  const int n = 32;
+  glDisable(GL_BLEND);
+  glBegin(GL_TRIANGLE_STRIP);
+  for (int i = 0; i <= n; i++) {
+    float k = (float)i / n, x = x0 + (x1 - x0) * k, rgb[3];
+    for (int c = 0; c < 3; c++) {
+      float a = (float)(from >> (16 - 8 * c) & 255), b = (float)(to >> (16 - 8 * c) & 255);
+      rgb[c] = a + (b - a) * k;
+    }
+    room_vertex(x, y, rgb), room_vertex(x, y + h, rgb);
+  }
+  glEnd();
+  glEnable(GL_BLEND);
+  d_label(x0, y - 10, label, argb(C_FAINT, 1));
+}
+
+void dither_draw(void) {
+  room_begin(-1);
+  room_light(SCR_W * 0.72f, 600, 260, 120, 0.16f);
+  d_begin_2d();
+  room_draw();
+  d_label(MARGIN, 96, "Video" DOT "16-bit colour", argb(C_LAMP, 1));
+  float x = d_text(FONT_TITLE, MARGIN - 1, 136, "Dithering: ", argb(C_WHITE, 1));
+  d_text(FONT_TITLE, x, 136, dither_name(dither_choice()), argb(C_WHITE, 1));
+  float y = 190;
+  ramp(y, 60, 0x080808, 0x383838, "Ink to graphite"), y += 92;
+  ramp(y, 60, 0x080808, 0x5A4A30, "Ink to lamp light");
+  y += 92;
+  ramp(y, 60, 0x101010, 0x45362A, "A tile's colour");
+  y += 92;
+  ramp(y, 60, 0x000000, 0xFFFFFF, "Black to white");
+  d_label(MARGIN, 600, "A soft light on ink (right)", argb(C_FAINT, 1));
+  static const char *const hints[] = {"L R", "Off, on, noise", SYM_CIRCLE, "Back", 0};
+  hints_draw(hints);
+}
+
+void dither_input(void) {
+  if (pad_pressed & (MX_PAD_RIGHT | MX_PAD_R1))
+    dither_next(1);
+  if (pad_pressed & (MX_PAD_LEFT | MX_PAD_L1))
+    dither_next(-1);
+  if (pad_pressed & MX_PAD_CIRCLE)
+    settings_enter();
 }

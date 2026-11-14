@@ -26,46 +26,6 @@ const char *const dev_root[NDEVS] = {"usb0:", "ata0:", "host:"};
 const char *const dev_name[NDEVS] = {"USB", "HDD", "Host"};
 int dev_found[NDEVS];
 
-/* the drivers of a device: file on mc0:/MXOS, the module's name on the IOP */
-static const char *const mods[NDEVS][4][2] = {
-    {{"bdm", "bdm"}, {"bdmfs_fatfs", "bdmff"}, {"usbd", "USB_driver"}, {"usbmass_bd", "usbmass_bd"}},
-    {{"bdm", "bdm"}, {"bdmfs_fatfs", "bdmff"}, {"mxata", "mxata"}, {0, 0}},
-    {{0, 0}, {0, 0}, {0, 0}, {0, 0}},
-};
-
-
-static int load_module(const char *file, const char *name) {
-  struct mx_iop_module m;
-  if (mx_iop_find_module(name, &m) > 0) /* its id; 0: not loaded */
-    return 0;
-  char path[48];
-  mx_snprintf(path, sizeof path, MXOS "%s.irx", file);
-  int fd = mx_fio_open(path, MX_FIO_RDONLY);
-  if (fd < 0) {
-    mx_printf("mxshell: %s: not there (%d)\n", path, fd);
-    return -1;
-  }
-  /* the IOP reads it by SIF DMA: pinned, and only while it is loaded (128
-     KiB of core the shell would keep beside a game) */
-  const u32 room = 128 * 1024;
-  u8 *irx = mx_dma_alloc(room);
-  if (!irx) {
-    mx_fio_close(fd);
-    return -1;
-  }
-  int n = mx_fio_read(fd, irx, room), res = 0;
-  mx_fio_close(fd);
-  if (n <= 0 || n == (int)room) {
-    mx_printf("mxshell: %s: read %d\n", path, n);
-    mx_dma_free(irx);
-    return -1;
-  }
-  int id = mx_iop_load_module_buffer(irx, (u32)n, 0, 0, &res);
-  mx_dma_free(irx);
-  mx_printf("mxshell: %s: %d, %d\n", file, id, res);
-  return id < 0 ? -1 : 0;
-}
-
 static int game_dev[MAX_GAMES];
 
 void game_path(char *out, int len, int i, const char *file) {
@@ -127,6 +87,11 @@ static int read_ini(int dev, struct game *g) {
       else if (!strcmp(s, "cover")) set(g->cover, sizeof g->cover, v);
       else if (!strcmp(s, "cover_hd")) set(g->cover_hd, sizeof g->cover_hd, v);
       else if (!strcmp(s, "saves")) set(g->saves, sizeof g->saves, v);
+      else if (!strcmp(s, "section")) {
+        char sec[16];
+        set(sec, sizeof sec, v);
+        g->sec = !strcmp(sec, "media") ? SEC_MEDIA : !strcmp(sec, "emulation") ? SEC_EMU : !strcmp(sec, "apps") ? SEC_APPS : SEC_GAMES;
+      }
     }
     s = *e ? e + 1 : e;
   }
@@ -182,13 +147,11 @@ int games_step(void) {
       continue;
     }
     if (step_tries == 0)
-      for (int m = 0; m < 4 && mods[d][m][0]; m++)
-        if (load_module(mods[d][m][0], mods[d][m][1]) < 0) {
-          /* without its drivers the device cannot come */
-          mx_printf("mxshell: %s: no drivers\n", dev_root[d]);
-          step_tries = TRIES;
-          break;
-        }
+      if (dev_drivers(d) < 0) {
+        /* without its drivers the device cannot come */
+        mx_printf("mxshell: %s: no drivers\n", dev_root[d]);
+        step_tries = TRIES;
+      }
     if (step_tries >= TRIES) {
       step_dev++, step_tries = 0;
       continue;

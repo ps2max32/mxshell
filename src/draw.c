@@ -12,6 +12,7 @@
 #include "pn.h"
 
 float frame_dt = 1.0f / 60.0f;
+u32 ticks; /* frames since the start */
 
 void spring_step(struct spring *s, float target, float w, float dt) {
   /* x'' = -w^2 (x - t) - 2 w x', in two half steps for stability */
@@ -516,4 +517,19 @@ float d_button(float x, float y, const char *sym, const char *label, int primary
   d_text(FONT_BUTTON, x + pl, base, sym, c);
   d_text(FONT_BUTTON, x + pl + sw + gap, base, label, c);
   return w;
+}
+
+/* the hints at the bottom right: pairs of a symbol (or a button's name) and what it does */
+void hints_draw(const char *const *p) {
+  float w = 0;
+  for (int i = 0; p[i]; i += 2) {
+    int sym = (unsigned char)p[i][0] < 8;
+    w += (sym ? d_text_w(FONT_BODY, p[i]) : d_label_w(p[i])) + 8 + d_text_w(FONT_SMALL, p[i + 1]) + 26;
+  }
+  float x = SCR_W - MARGIN - w + 26, y = SCR_H - 36;
+  for (int i = 0; p[i]; i += 2) {
+    int sym = (unsigned char)p[i][0] < 8;
+    x = sym ? d_text(FONT_BODY, x, y, p[i], argb(C_DIM, 1)) : d_label(x, y - 1, p[i], argb(C_DIM, 1));
+    x = d_text(FONT_SMALL, x + 8, y, p[i + 1], argb(C_DIM, 1)) + 26;
+  }
 }
