@@ -127,14 +127,17 @@ void hub_draw(void) {
 
   /* the details */
   float x = (wide ? 500 : t.x + t.w + 64) + (1 - k) * 20, x1 = SCR_W - MARGIN, y = 120;
-  d_label(x, y, gm->type[0] ? gm->type : "Game", argb(C_LAMP, 1));
+  d_label(x, y, g == run_game ? "Paused" : gm->type[0] ? gm->type : "Game", argb(C_LAMP, 1));
   d_text_fit(FONT_DISP, FONT_TITLE, x - 2, y + 58, x1 - x, gm->title, argb(C_WHITE, 1));
   y += 96;
   if (gm->desc[0])
     y = para(x, y, x1 - x, gm->desc, 3);
   y += 14;
   float bx = x;
-  bx += d_button(bx, y, SYM_CROSS, "Play", 1) + 12;
+  int paused = g == run_game;
+  bx += d_button(bx, y, SYM_CROSS, paused ? "Resume" : "Play", 1) + 12;
+  if (paused)
+    bx += d_button(bx, y, SYM_SQUARE, "Close", 0) + 12;
   y += 82;
   d_rect(x, y - 18, x1, y - 17, argb(C_WHITE, 0.08f), argb(C_WHITE, 0.08f));
   char v[64];
@@ -157,7 +160,8 @@ void hub_draw(void) {
     fact(x, y, x1 - x, "Saves", gm->saves[0] ? "None yet" : "Kept by the game itself");
 
   static const char *const hints[] = {SYM_CROSS, "Play", SYM_CIRCLE, "Back", 0};
-  hints_draw(hints);
+  static const char *const hints_paused[] = {SYM_CROSS, "Resume", SYM_SQUARE, "Close", SYM_CIRCLE, "Back", 0};
+  hints_draw(paused ? hints_paused : hints);
   ui_fade = 1;
   status_draw();
 }
@@ -169,4 +173,10 @@ void hub_input(void) {
     leaving = 1;
   if (pad_pressed & MX_PAD_CROSS)
     screen = SCR_LAUNCH, hub_game = -1;
+  else if (pad_pressed & MX_PAD_SQUARE && hub_game == run_game) {
+    char m[48];
+    strncpy(m, games[hub_game].title, sizeof m - 1), m[sizeof m - 1] = 0;
+    game_close();
+    toast(N_INFO, "Closed", m, 0);
+  }
 }

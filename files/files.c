@@ -1189,6 +1189,7 @@ int main(int argc, char **argv) {
         odev = -1;
       }
     }
+    toast_step();
     switch (mode) {
     case M_BROWSE: browse_input(); break;
     case M_MENU: menu_input(); break;

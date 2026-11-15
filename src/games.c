@@ -9,6 +9,7 @@
 #include <mx/iop.h>
 #include <mx/mem.h>
 #include <mx/loader.h>
+#include <mx/proc.h>
 #include <mx/mx.h>
 #include <mx/sif.h>
 #include <mx/debug.h>
@@ -28,8 +29,13 @@ int dev_found[NDEVS];
 
 static int game_dev[MAX_GAMES];
 
+/* file in the game's directory; "../<dir>/<file>": in another one of
+   PS2MAX (Media's tiles share one program) */
 void game_path(char *out, int len, int i, const char *file) {
-  mx_snprintf(out, len, "%s/PS2MAX/%s/%s", dev_root[game_dev[i]], games[i].dir, file);
+  if (!strncmp(file, "../", 3))
+    mx_snprintf(out, len, "%s/PS2MAX/%s", dev_root[game_dev[i]], file + 3);
+  else
+    mx_snprintf(out, len, "%s/PS2MAX/%s/%s", dev_root[game_dev[i]], games[i].dir, file);
 }
 
 static void set(char *d, u32 n, const char *s) {
@@ -87,6 +93,7 @@ static int read_ini(int dev, struct game *g) {
       else if (!strcmp(s, "cover")) set(g->cover, sizeof g->cover, v);
       else if (!strcmp(s, "cover_hd")) set(g->cover_hd, sizeof g->cover_hd, v);
       else if (!strcmp(s, "saves")) set(g->saves, sizeof g->saves, v);
+      else if (!strcmp(s, "order")) g->order = (u8)atoi(v);
       else if (!strcmp(s, "section")) {
         char sec[16];
         set(sec, sizeof sec, v);
@@ -110,9 +117,11 @@ static void scan(int dev, int dir) {
     if (read_ini(dev, &g) < 0)
       continue;
     g.base = title_colour(g.title);
-    /* sorted by title */
+    /* sorted by order=, then by title */
     int j = ngames++;
-    for (; j > 0 && strcmp(games[j - 1].title, g.title) > 0; j--)
+    for (; j > 0 && (games[j - 1].order > g.order ||
+                     (games[j - 1].order == g.order && strcmp(games[j - 1].title, g.title) > 0));
+         j--)
       games[j] = games[j - 1], game_dev[j] = game_dev[j - 1];
     games[j] = g, game_dev[j] = dev;
   }
@@ -245,7 +254,7 @@ void games_textures_free(void) {
     }
 }
 
-int game_launch(int i) {
+int game_launch(int i, int spawn) {
   static char args[256], swap[48];
   game_path(args, 112, i, games[i].elf);
   char *e = args + strlen(args) + 1;
@@ -264,5 +273,7 @@ int game_launch(int i) {
   int fd = mx_fio_open(swap, MX_FIO_RDONLY);
   if (fd >= 0)
     mx_fio_close(fd);
+  if (spawn)
+    return mx_proc_spawn(argc, args, (u32)(e - args), fd >= 0 ? swap : 0);
   return mx_loader_launch(argc, args, (u32)(e - args), fd >= 0 ? swap : 0);
 }

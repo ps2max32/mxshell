@@ -5,7 +5,7 @@
    Arguments, for pictures and tests from the host:
      dev=host        look for games on host: too (ps2client's directory)
      screen=hub|settings|boot   start on that screen
-     right=<n>       the focus n tiles to the right
+     right=<n>       the focus n tiles to the right (with pick: right n times on that row)
      sec=<n>         start in that section (0 Games .. 4 Settings)
      walk            (tests) the focus a tile on every 20 frames, there and back
      refl=a|b|c      (tests) the reflection's look
@@ -28,6 +28,9 @@
 #include <mx/mx.h>
 #include <mx/vm.h>
 #include <mx/mem.h>
+#include <mx/kernel.h>
+#include <mx/msg.h>
+#include <mx/proc.h>
 #include <mx/pad.h>
 #include <mx/sif.h>
 #include <mx/thread.h>
@@ -138,26 +141,54 @@ static void launch_draw(void) {
     d_rect(0, 0, SCR_W, SCR_H, argb(C_INK, b), argb(C_INK, b));
 }
 
-static void launch(void) {
-  int g = focus_game();
-  if (g < 0)
-    return;
-  char name[48];
-  strncpy(name, games[g].title, sizeof name - 1), name[sizeof name - 1] = 0;
-  /* the game gets the GS, the pad's ports and as much memory as can be
-     given: the covers go, and libgl gives back its arenas, beam racing's
-     records and the rest it holds (mxgl_suspend stops the pipeline) */
+/* The home button (kernel version 25): the shell starts a game beside it
+   (mx_proc_spawn) and waits for the kernel's event: its end, or the home
+   button pressed in it, which pauses it and brings the shell in front. The
+   shell then shows the game's hub: Resume (mx_proc_front) or Close
+   (mx_proc_kill). With an older kernel a game starts in the shell's place
+   (mx_loader_launch) and the shell is back at its end. */
+static int ev_port;         /* the kernel's events, 0: an older kernel */
+static int run_id;          /* the paused game's process */
+int run_game = -1;
+static char run_name[48];
+#define AT_HOME (-1000)     /* game_wait: the home button, not an end */
+/* tests: hometest, the home button's way through (fakegame "0 home=<n>"
+   presses it): the hub's picture, Resume, at the second press Close */
+static int home_test, home_count;
+static u32 home_at;
+
+/* the game in front until it ends or the home button pauses it: its exit
+   status, or AT_HOME */
+static int game_wait(int id) {
+  for (;;) {
+    struct mx_event e;
+    struct mx_msg m;
+    memset(&e, 0, sizeof e);
+    if (mx_msg_receive(ev_port, &e, sizeof e, &m) < 0)
+      return -1;
+    if (m.from != 0 || e.proc != id)
+      continue;
+    if (e.type == MX_EVENT_HOME)
+      return AT_HOME;
+    if (e.type == MX_EVENT_END) {
+      int st;
+      mx_proc_wait(id, &st, 1);
+      return e.status;
+    }
+  }
+}
+
+/* the shell gives the game the GS, the pad's ports and as much memory as
+   can be given: the covers go, and libgl gives back its arenas, beam
+   racing's records and the rest it holds (mxgl_suspend stops the pipeline) */
+static void shell_away(void) {
   games_textures_free();
   mxgl_suspend();
-  /* what stays of the shell beside the game: its pinned frames (the
-     kernel's are counted too) */
-  struct mx_mem_pressure mp;
-  mx_mem_pressure(&mp);
-  mx_printf("mxshell: launch %s: %u KB pinned, %u KB free\n", name, mp.pinned_frames * (MX_VM_PAGE / 1024),
-            mp.free_frames * (MX_VM_PAGE / 1024));
-  int st = game_launch(g);
-  /* libgl's memory again (if the game's memory is not back yet, a while
-     later), then the mode as set */
+}
+
+/* and takes them back: libgl's memory (if the game's memory is not back
+   yet, a while later), the mode as set, the pads, the covers */
+static void shell_back(void) {
   mxgl_resume();
   for (int i = 0; mxgl_suspended() && i < 50; i++)
     mx_sleep_us(100000), mxgl_resume();
@@ -165,8 +196,91 @@ static void launch(void) {
   pad_on = mx_pad_init() >= 0;
   games_textures();
   input_wait = 1;
-  screen = SCR_HOME, screen_at = ticks;
+  screen_at = ticks;
   back_at = ticks;
+}
+
+static void game_ended(const char *name, int st);
+
+/* after game_wait: the hub of the paused game, or Home after its end */
+static void game_away(int id, int g, int st) {
+  shell_back();
+  if (st == AT_HOME) {
+    run_id = id, run_game = g;
+    mx_printf("mxshell: home: %s paused\n", run_name);
+    home_count++, home_at = ticks;
+    screen = SCR_HUB;
+    return;
+  }
+  run_id = 0, run_game = -1;
+  screen = SCR_HOME;
+  game_ended(run_name, st);
+}
+
+/* the paused game in front again */
+static void game_resume(void) {
+  int id = run_id, g = run_game;
+  mx_printf("mxshell: resume %s\n", run_name);
+  shell_away();
+  if (mx_proc_front(id) < 0) {
+    /* it is not there any more: its end is an event already, or lost */
+    int st = 0;
+    if (mx_proc_wait(id, &st, 1) != 1)
+      st = -1;
+    game_away(id, g, st);
+    return;
+  }
+  /* back here: the next press of the home button, or its end */
+  game_away(id, g, game_wait(id));
+}
+
+void game_close(void) {
+  if (!run_id)
+    return;
+  mx_printf("mxshell: close %s\n", run_name);
+  /* the shell paused while it ends in front, then here again: its mode */
+  int id = run_id;
+  run_id = 0, run_game = -1;
+  if (mx_proc_kill(id, 0) == 0)
+    game_wait(id);
+  video_apply();
+  input_wait = 1;
+}
+
+static void launch(void) {
+  int g = focus_game();
+  if (g < 0)
+    return;
+  if (run_id && g == run_game) {
+    game_resume();
+    return;
+  }
+  if (run_id) {
+    char m[56];
+    mx_snprintf(m, sizeof m, "%s", run_name);
+    game_close();
+    toast(N_INFO, "Closed", m, 0);
+  }
+  strncpy(run_name, games[g].title, sizeof run_name - 1), run_name[sizeof run_name - 1] = 0;
+  shell_away();
+  /* what stays of the shell beside the game: its pinned frames (the
+     kernel's are counted too) */
+  struct mx_mem_pressure mp;
+  mx_mem_pressure(&mp);
+  mx_printf("mxshell: launch %s: %u KB pinned, %u KB free\n", run_name, mp.pinned_frames * (MX_VM_PAGE / 1024),
+            mp.free_frames * (MX_VM_PAGE / 1024));
+  if (ev_port) {
+    int id = game_launch(g, 1);
+    game_away(id, g, id > 0 ? game_wait(id) : -1);
+    return;
+  }
+  int st = game_launch(g, 0);
+  shell_back();
+  screen = SCR_HOME;
+  game_ended(run_name, st);
+}
+
+static void game_ended(const char *name, int st) {
   struct mx_crash crash;
   if (st < 0)
     toast(N_WARN, "Could not start", name, 1);
@@ -242,6 +356,13 @@ static u32 switch_every = 90;
 int main(int argc, char **argv) {
   int shot = 0, right = 0, note = 0, start = SCR_BOOT, go = 0, stats = 0, end = 0, walk = 0, pick = -1;
   cfg_load();
+  /* the kernel's events: a game's end and the home button */
+  if (mx__kernel && mx__kernel->version >= 25) {
+    ev_port = mx_port_create("mxshell");
+    if (ev_port > 0 && mx_proc_events(ev_port) != 0)
+      mx_port_delete(ev_port), ev_port = 0;
+    ev_port = ev_port > 0 ? ev_port : 0;
+  }
 #ifdef MX_BIOS_CALLS
   if (argc <= 1)
     argc = args_from_host(&argv);
@@ -288,6 +409,8 @@ int main(int argc, char **argv) {
       cfg_set("video.beam", "0");
     else if (!strcmp(a, "rgb16"))
       cfg_set("video.depth", "16");
+    else if (!strcmp(a, "hometest"))
+      home_test = 1;
     else if (!strcmp(a, "launch"))
       go = 1, start = SCR_HOME;
     else if (!strcmp(a, "note"))
@@ -351,7 +474,7 @@ int main(int argc, char **argv) {
           toast(N_DEVICE, d == DEV_USB ? "USB drive ready" : "Hard disk ready", dev_root[d], 0);
       if (start != SCR_BOOT) {
         /* a picture of a screen: once the games are there */
-        for (int i = 0; i < right; i++) {
+        for (int i = 0; start != SCR_SETTINGS && i < right; i++) {
           pad_pressed = MX_PAD_RIGHT;
           home_input();
         }
@@ -361,6 +484,10 @@ int main(int argc, char **argv) {
           if (pick >= 0) {
             void settings_pick(int n);
             settings_pick(pick);
+            for (int i = 0; i < right; i++) {
+              pad_pressed = MX_PAD_RIGHT;
+              settings_input();
+            }
           }
         }
         else if (start == SCR_DITHER)
@@ -378,6 +505,11 @@ int main(int argc, char **argv) {
     if (walk && screen == SCR_HOME && ticks % 20 == 0) {
       /* there and back along the row: 8 steps one way, 8 the other */
       pad_pressed = (ticks / 20) % 16 < 8 ? MX_PAD_RIGHT : MX_PAD_LEFT;
+    }
+    /* the home button with a game paused: back to it */
+    if (run_id && pad_pressed & MX_PAD_HOME && screen != SCR_LAUNCH) {
+      pad_pressed = 0;
+      game_resume();
     }
     switch (screen) {
     case SCR_HOME:
@@ -445,6 +577,18 @@ int main(int argc, char **argv) {
     }
     if (screen == SCR_LAUNCH && (float)(ticks - screen_at) * frame_dt > LAUNCH_T)
       launch();
+    if (home_test && run_id && ticks - home_at == 90) {
+      int r = mxgl_screenshot(home_count == 1 ? "host:mxshell-home1.tga" : "host:mxshell-home2.tga");
+      mx_printf("mxshell: hometest: press %d, the hub's picture %d\n", home_count, r);
+      if (home_count == 1)
+        game_resume();
+      else {
+        game_close();
+        mx_printf("mxshell: hometest: closed, %s\n", run_id ? "still there" : "gone");
+        MX_TEST_END(run_id ? 1 : 0);
+        return 0;
+      }
+    }
     if (end && ticks == (u32)end) {
       MX_TEST_END(0);
       return 0;

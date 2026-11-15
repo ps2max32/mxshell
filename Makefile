@@ -127,6 +127,56 @@ $(OUT)/PS2MAX/files/FILES.ELF: $(OUT)/files.elf $(HERE)/files/game.ini
 	cp $(HERE)/files/game.ini $(dir $@)
 files: $(OUT)/PS2MAX/files/FILES.ELF
 
+# Media, an app of the shell (media/media.c, in its Media section): photos,
+# videos and music, as Files on the shell's drawing
+MEDIA_OBJS = $(FILES_SRCS:%=$(OUT)/obj/%.o) $(OUT)/obj/font_bin.o $(ZSRCS:%=$(OUT)/obj/zlib/%.o) $(OUT)/obj/media.o
+$(OUT)/obj/media.o: $(HERE)/media/media.c
+	@mkdir -p $(dir $@)
+	$(CC) $(SCFLAGS) -I$(HERE)/src -c $< -o $@
+$(OUT)/media.elf: $(MEDIA_OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(MX_LIB) $(MX_CRT0) $(MX_LD) $(LIBC_LIBS)
+	$(call link,$@,$(MX_CRT0) $(MEDIA_OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(LIBC_LIBS))
+# the program in PS2MAX/media, and three tiles that start it, each with
+# its kind: PS2MAX/photos, videos and music (game.ini and covers)
+MEDIA_KINDS = photos videos music
+$(OUT)/PS2MAX/media/PLAYER.ELF: $(OUT)/media.elf $(MEDIA_KINDS:%=$(HERE)/media/%/game.ini) $(HERE)/tools/mk-media-covers.py
+	@mkdir -p $(dir $@)
+	$(LLVM)/llvm-strip -o $@ $<
+	for k in $(MEDIA_KINDS); do mkdir -p $(OUT)/PS2MAX/$$k && cp $(HERE)/media/$$k/game.ini $(OUT)/PS2MAX/$$k/; done
+	python3 $(HERE)/tools/mk-media-covers.py $(HERE)/font/src/InterTight-Variable.ttf $(OUT)/PS2MAX
+media: $(OUT)/PS2MAX/media/PLAYER.ELF
+
+# Media on PCSX2 with the samples in build/pcsx2-test/Media
+# (tools/media-samples.sh makes them): a picture after MEDIA_FRAMES frames
+# (MEDIA_ARGS: kind=photo|video|music dev=4 path=<dir> sel=<n> open
+# keys=<buttons> mode=<video mode>; media/media.c says more). PCSX2 shows
+# no 720p (no vblanks): 1080i or the SD modes
+MEDIA_FRAMES ?= 300
+media-shot:
+	@test -n "$(RUNNER)" || { echo "make media-shot: set RUNNER (see the Makefile)"; exit 2; }
+	@test -d $(PS2MAX)/build/pcsx2-test/Media || { echo "make media-shot: no samples: tools/media-samples.sh $(PS2MAX)/build/pcsx2-test"; exit 2; }
+	$(MAKE) MX_TARGET=standalone media
+	cp $(PS2MAX)/build/apps/mxshell-sa/media.elf $(PS2MAX)/build/pcsx2-test/media.elf
+	echo "shot=$(MEDIA_FRAMES) $(MEDIA_ARGS)" > $(PS2MAX)/build/pcsx2-test/media.txt
+	PCSX2_RENDERER=sw $(RUNNER) $(PS2MAX)/build/pcsx2-test/media.elf 60
+
+# The home button on PCSX2 (kernel version 25): the shell (the MXOS build)
+# as the kernel's shell, a stand-in game that presses home twice (fakegame
+# "0 home=100", the kernel's "@@PAD" test lines): the paused game's hub,
+# Resume, Close (hometest). HOME_KERNEL: an emulator kernel built with
+# MODULE_DIR=host: (its shell host:MXSHELL.ELF) and the @@PAD test hook.
+HOME_KERNEL ?= $(PS2MAX)/build/apps/mxos-emuhost/mxkernel.elf
+home-test: all fakegame
+	@test -n "$(RUNNER)" || { echo "make home-test: set RUNNER (see the Makefile)"; exit 2; }
+	@test -f $(HOME_KERNEL) || { echo "make home-test: no $(HOME_KERNEL)"; exit 2; }
+	mkdir -p $(PS2MAX)/build/pcsx2-test/PS2MAX/home
+	cp $(OUT)/fakegame.elf $(PS2MAX)/build/pcsx2-test/PS2MAX/home/
+	printf 'title=A Home Test\ntype=Test\nelf=fakegame.elf\nargs=0 home=100\ndescription=Presses the home button twice.\n' \
+	  > $(PS2MAX)/build/pcsx2-test/PS2MAX/home/game.ini
+	cp $(OUT)/MXOS/MXSHELL.ELF $(PS2MAX)/build/pcsx2-test/MXSHELL.ELF
+	cp $(HOME_KERNEL) $(PS2MAX)/build/pcsx2-test/mxk-home.elf
+	MXLOAD="host:MXSHELL.ELF dev=hostonly launch hometest" PCSX2_EE=interp PCSX2_RENDERER=sw \
+	  $(RUNNER) $(PS2MAX)/build/pcsx2-test/mxk-home.elf 60
+
 # Files on PCSX2: a picture (FILES_ARGS: dev=<n> path=<dir> sel=<n> mark=<n> menu keys)
 files-shot:
 	@test -n "$(RUNNER)" || { echo "make files-shot: set RUNNER (see the Makefile)"; exit 2; }
@@ -151,4 +201,4 @@ font:
 clean:
 	rm -rf $(OUT)
 
-.PHONY: all standalone shot font clean fakegame usbcopy files files-shot
+.PHONY: all standalone shot font clean fakegame usbcopy files files-shot media media-shot home-test

@@ -113,10 +113,10 @@ static void fam_of(int m, int *f, int *sub) {
 }
 
 /* the rows of the Video page */
-enum { VR_FAMILY, VR_RATE, VR_USE, VR_COLOUR, VR_DITHER, VR_DTEST, VR_TV, VR_FLICKER };
+enum { VR_FAMILY, VR_RATE, VR_COLOUR, VR_DITHER, VR_DTEST, VR_TV, VR_FLICKER };
 static int vrows(int *r) {
   int n = 0;
-  r[n++] = VR_FAMILY, r[n++] = VR_RATE, r[n++] = VR_USE, r[n++] = VR_COLOUR, r[n++] = VR_DITHER, r[n++] = VR_DTEST;
+  r[n++] = VR_FAMILY, r[n++] = VR_RATE, r[n++] = VR_COLOUR, r[n++] = VR_DITHER, r[n++] = VR_DTEST;
   if (vfam == FAM_EDTV || vfam == FAM_SD)
     r[n++] = VR_TV;
   if (vfam == FAM_SD)
@@ -234,15 +234,13 @@ static void page_video(float x0, float x1, float y) {
   for (int i = 1; i < n; i++, yy += step) {
     int chosen = cur == r[i];
     switch (r[i]) {
-    case VR_RATE:
-      vrow(x0, x1, yy, "Frame rate", 0, chosen);
-      seg(x1, yy, fams[vfam].sub, fams[vfam].n, vsub, chosen);
-      break;
-    case VR_USE: {
+    case VR_RATE: {
+      /* a choice that is not in use: what it is, and how to try it */
       int m = fams[vfam].mode[vsub];
-      char l[48];
-      mx_snprintf(l, sizeof l, m == use ? "In use: %s" : "Try %s", vmodes[m].name);
-      vrow(x0, x1, yy, l, m == use ? 0 : "Kept when you confirm it within 15 s", chosen);
+      char l[64];
+      mx_snprintf(l, sizeof l, "%s" DOT "not in use yet", vmodes[m].name);
+      vrow(x0, x1, yy, "Frame rate", m == use ? 0 : l, chosen);
+      seg(x1, yy, fams[vfam].sub, fams[vfam].n, vsub, chosen);
       break;
     }
     case VR_COLOUR: {
@@ -449,10 +447,6 @@ static void video_input(u32 p) {
   case VR_RATE:
     if (d && vsub + d >= 0 && vsub + d < fams[vfam].n)
       vsub += d;
-    if (x)
-      video_set(fams[vfam].mode[vsub]);
-    break;
-  case VR_USE:
     if (x)
       video_set(fams[vfam].mode[vsub]);
     break;

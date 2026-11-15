@@ -133,6 +133,8 @@ static void caption(float x) {
     mx_snprintf(meta, sizeof meta, "%s%s%s%s%s", gm->year, gm->year[0] ? DOT : "", gm->type,
                 gm->type[0] ? DOT : "", where);
     act = kick;
+    if (g == run_game)
+      kick = "Paused", act = "Resume";
   } else {
     /* a section with nothing in it */
     kick = sec_name[home_sec], title = games_searching ? "Looking" : "Nothing here yet", act = 0;

@@ -152,6 +152,7 @@ struct game {
   float tex_v; /* the part of its height the cover takes */
   u32 size_kb;
   u8 sec;    /* the section it is shown in (game.ini: section=media|emulation|apps), SEC_GAMES */
+  u8 order;  /* game.ini order=<n>: by it first (0 without), then by title */
 };
 /* Home's sections (L1 and R1 go through them): what a program is, and Settings */
 enum { SEC_GAMES, SEC_MEDIA, SEC_EMU, SEC_APPS, SEC_SETTINGS, NSECS };
@@ -173,7 +174,13 @@ void games_search(void);
 extern int games_searching;
 void games_textures(void); /* the covers as textures (after a game, again) */
 void games_textures_free(void);
-int game_launch(int i);
+/* start game i: with spawn beside the shell (mx_proc_spawn: its process, or
+   -1), else in its place (mx_loader_launch: its exit status, -1 not started) */
+int game_launch(int i, int spawn);
+/* a game paused behind the shell by the home button (kernel version 25):
+   its index in games, -1 none; game_close ends it (main.c) */
+extern int run_game;
+void game_close(void);
 void game_path(char *out, int len, int i, const char *file);
 
 /* ---- notifications (toast.c) ---- */

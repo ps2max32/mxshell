@@ -9,15 +9,19 @@ What it does now (PLAN.md, phase A):
 - **Home**: sections, L1 and R1 go through them: Games, Media, Emulation, Apps and Settings.
   Each is a shelf, the lit tile with its caption; covers from `cover.t8`, else a tile with the
   title. The light follows the focus. A program's `game.ini` names its section with
-  `section=media`, `emulation` or `apps` (without it: Games); a media player is a program like a
-  game, in Media.
+  `section=media`, `emulation` or `apps` (without it: Games), its place with `order=<n>`
+  (by it first, 0 without, then by title); `elf=../<dir>/<file>` names a program in another
+  directory of `PS2MAX/` (Media's three tiles share one).
 - **Game hub** (triangle): the game as a slab, its details from `game.ini`, its size and
   place, its saves where `game.ini` names them (`saves=<directory>`).
 - **Starting a game** (cross): the lit tile goes to the middle as a poster, the rest goes dark,
-  a line under it fills, then black; the game starts with
-  `mx_loader_launch` and the shell waits; its covers and beam racing's memory are given
-  back first. Back from the game the shelf comes out of the dark; a game that crashed or
-  ended with a status other than 0 leaves a notification.
+  a line under it fills, then black; the shell gives back its covers and beam racing's memory.
+  With a kernel of version 25 the game starts beside the shell (`mx_proc_spawn`), which waits
+  for the kernel's events: the home button in the game pauses it and brings the shell in front
+  with the game's hub (Paused: cross Resume, square Close, the home button back to it); starting
+  another game closes the paused one first. With an older kernel the game starts in the
+  shell's place (`mx_loader_launch`). Back from the game the shelf comes out of the dark; a
+  game that crashed or ended with a status other than 0 leaves a notification.
 - **Settings** (the last section, its own screen: the pages in a list, L1 back to Apps): Video (a family of modes, 1080, 720p, 480p/576p or NTSC/PAL, and under it the frame rate or
   standard, colour, dithering, television and flicker filter where they apply; without a setting
   the console's own mode, PAL or NTSC; a new mode
@@ -33,6 +37,19 @@ What it does now (PLAN.md, phase A):
   what opens as one, rename and move are a copy and a delete, and no free space is shown.
   Cross on an ELF starts it (Files waits; a kernel of version 24). `make files-shot RUNNER=... FILES_ARGS="dev=4 path=PS2MAX ops"` runs every
   action once in PCSX2.
+- **Media** (`media/`, three tiles in Media, Photos, Videos and Music, each starting
+  `PS2MAX/media/PLAYER.ELF` with its kind; `make media`): a device's `Media/<kind>` folder
+  first, any folder from there, L1 and R1 between the kinds, a preview of the chosen file at
+  16:9. Photos (JPEG, PNG; not progressive JPEG) full screen, scaled down to fit 9 tiles of
+  256 x 256, the most that fit GS memory beside 1080i's buffer; L1/R1 the folder's others.
+  Videos (MPEG-1/2 with LPCM or MP2 sound, `<mx/movie.h>` on the IPU, up to 768 x 768) with a
+  bar of where it is: cross pauses, L1/R1 10 s back or on. Music (WAV, MP2; MP3 listed, not
+  played) in a thread of its own: it plays on while you browse or look at photos, the folder's
+  next track after it, START shows Now playing (cross pause, L1/R1 previous and next, square
+  stop). It ends with Media: until the OS can keep a program beside the shell and games.
+  `tools/media-samples.sh build/pcsx2-test` downloads samples (Wikimedia Commons, Big Buck
+  Bunny) and `make media-shot RUNNER=... MEDIA_ARGS="kind=video dev=4 sel=1 open keys=rx"`
+  plays one in PCSX2 (`keys=`: buttons a second apart).
 - **Notifications**: cards top right; a pad that comes or goes, a device found, a game that
   ended badly. Urgent ones stay until a button.
 - **Power-on**: a point of light, a horizon, the mark, then the shelf.
@@ -56,6 +73,11 @@ make standalone   # build/apps/mxshell-sa/mxshell.elf: libmx, for pictures on PC
 make shot         # that ELF on PCSX2 (RUNNER=...) with build/pcsx2-test/PS2MAX: host:mxshell.tga
                   # (ARGS="screen=hub", "screen=settings", "note", "right=<n>", "rgb16")
 make fakegame     # tests/fakegame.c: a stand-in game that ends with the status it is given
+                  # (args "0 home": runs 30 s and lets the home button through)
+make home-test    # the home button on PCSX2 (RUNNER=..., HOME_KERNEL=<emulator kernel, MODULE_DIR=host:>):
+                  # a stand-in game pressed home twice: hub (host:mxshell-home1.tga), Resume, Close
+make files        # PS2MAX/files: FILES.ELF and its game.ini
+make media        # PS2MAX/media/PLAYER.ELF, PS2MAX/photos, videos, music (game.ini, covers)
 make font         # font/font_<shape>.z and font.h from font/src
 make usbcopy      # tools/usbcopy.c: files to and from the USB stick through the host link
 ```
