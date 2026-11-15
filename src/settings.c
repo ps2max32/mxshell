@@ -12,6 +12,7 @@
 #include <mx/kernel.h>
 #include <mx/pad.h>
 #include <mx/sif.h>
+#include <mx/setting.h>
 #include <mx/video.h>
 #include <math.h>
 #include <string.h>
@@ -75,6 +76,7 @@ static void ip_save(void) {
 }
 
 static int vrows(int *r);
+static int pr_n;
 
 /* ---- the items of each page ---- */
 static int nitems(void) {
@@ -85,7 +87,7 @@ static int nitems(void) {
   }
   case P_NETWORK: return 4;
   case P_STORAGE: return st_n + 2;
-  case P_PADS: return 2;
+  case P_PADS: return pr_n;
   default: return 0;
   }
 }
@@ -394,16 +396,246 @@ void settings_goto(int pg, int swap_row) {
   screen = SCR_SETTINGS;
 }
 
-static void page_pads(float x0, float x1, float y) {
-  for (int p = 0; p < 2; p++) {
-    char l[24];
-    mx_snprintf(l, sizeof l, "Port %d", p + 1);
-    int on = mx_pad_connected(p);
-    const char *v = !on ? "No controller" : ticks < rumble_until && item == p ? "Rumbling" : SYM_CROSS "  Try the motors";
-    line(x0, x1, y + ROW * p, l, v, in_page && item == p, on);
+/* ---- Controllers (kernel version 28, <mx/pad.h>): the pads there, with
+   their kind, link, battery and light; pairing over Bluetooth; the light
+   bars' brightness and turning off; the paired pads not there ---- */
+enum { PR_PAD, PR_PAIR, PR_BRIGHT, PR_IDLE, PR_PAIRED };
+#define PR_MAX (MX_PAD_PORTS + 3 + 8)
+static struct {
+  u8 type, port;
+  struct mx_pad_info in;
+  struct mx_pad_paired pd;
+} pr[PR_MAX];
+static u32 pr_gen = ~0u;
+static struct mx_pad_pairing pairing;
+
+static void pr_read(void) {
+  if (mx_pad_gen() == pr_gen && pr_n)
+    return;
+  pr_gen = mx_pad_gen();
+  mx_pad_pair_state(&pairing);
+  pr_n = 0;
+  for (int p = 0; p < MX_PAD_PORTS; p++) {
+    struct mx_pad_info in;
+    if (mx_pad_info(p, &in) == 1)
+      pr[pr_n].type = PR_PAD, pr[pr_n].port = (u8)p, pr[pr_n++].in = in;
   }
-  note(x0, y + ROW * 2, "USB and Bluetooth pads take the ports in turn.");
-  note(x0, y + ROW * 2 + 26, "Battery, light and turning off come with the OS's pad calls.");
+  pr[pr_n++].type = PR_PAIR;
+  pr[pr_n++].type = PR_BRIGHT;
+  pr[pr_n++].type = PR_IDLE;
+  struct mx_pad_paired pd[8];
+  int n = mx_pad_paired(pd, 8);
+  for (int i = 0; i < n; i++)
+    if (!pd[i].connected)
+      pr[pr_n].type = PR_PAIRED, pr[pr_n++].pd = pd[i];
+}
+
+static const char *pad_kind(int k) {
+  switch (k) {
+  case MX_PAD_KIND_DS3: return "DualShock 3";
+  case MX_PAD_KIND_DS4: return "DualShock 4";
+  case MX_PAD_KIND_DS5: return "DualSense";
+  case MX_PAD_KIND_PS2: return "Controller";
+  default: return "Controller";
+  }
+}
+static int has_light(int k) { return k == MX_PAD_KIND_DS4 || k == MX_PAD_KIND_DS5; }
+
+/* the light bar's colours: the player's (the setting removed), then these */
+static const struct {
+  const char *name, *hex;
+} colours[] = {{"Player", ""}, {"Amber", "e9a040"}, {"Red", "e02020"}, {"Green", "20c040"},
+               {"Blue", "2040e0"}, {"Purple", "9030d0"}, {"White", "ffffff"}};
+#define NCOLOURS (int)(sizeof colours / sizeof colours[0])
+static int colour_of(u32 id) {
+  char key[MX_SETTING_KEY];
+  mx_snprintf(key, sizeof key, "pad.%08x.colour", id);
+  const char *v = cfg_get(key, "");
+  for (int i = 1; i < NCOLOURS; i++)
+    if (!strcmp(v, colours[i].hex))
+      return i;
+  return 0;
+}
+static void colour_set(u32 id, int c) {
+  char key[MX_SETTING_KEY];
+  mx_snprintf(key, sizeof key, "pad.%08x.colour", id);
+  cfg_set(key, colours[c].hex);
+  cfg_save();
+}
+
+/* brightness and turning off: the choices and the settings' values */
+static const char *const bright_l[] = {"Off", "Low", "Medium", "High"};
+static const char *const bright_v[] = {"0", "25", "60", "100"};
+static const char *const idle_l[] = {"Never", "10 m", "30 m", "60 m"};
+static const char *const idle_v[] = {"0", "10", "30", "60"};
+static int choice_of(const char *key, const char *def, const char *const *v, int n) {
+  const char *c = cfg_get(key, def);
+  for (int i = 0; i < n; i++)
+    if (!strcmp(c, v[i]))
+      return i;
+  return 0;
+}
+
+static void battery(float x, float mid, int level, int charging) {
+  /* five steps of two levels, amber when low */
+  float w = 30, h = 12;
+  surface_draw(&(struct surface){.x0 = x, .y0 = mid - h / 2, .x1 = x + w, .y1 = mid + h / 2, .r = 3, .glass = -1,
+                                 .line = argb(C_WHITE, 0.45f), .a = 1, .hollow = 1});
+  d_rect(x + w + 1, mid - 3, x + w + 3, mid + 3, argb(C_WHITE, 0.45f), argb(C_WHITE, 0.45f));
+  int steps = (level + 1) / 2;
+  u32 c = charging ? C_LAMP : level <= 2 ? C_WARN : C_WHITE;
+  for (int i = 0; i < steps && i < 5; i++)
+    d_rect(x + 3 + i * 5, mid - h / 2 + 3, x + 7 + i * 5, mid + h / 2 - 3, argb(c, 0.9f), argb(c, 0.9f));
+}
+
+static void page_pads(float x0, float x1, float y) {
+  pr_read();
+  mx_pad_pair_state(&pairing);
+  int nports = 0;
+  for (int i = 0; i < pr_n; i++) {
+    float yy = y + ROW * i, mid = yy - text_mid(FONT_BODY);
+    int chosen = in_page && item == i;
+    char l[48], v[64];
+    switch (pr[i].type) {
+    case PR_PAD: {
+      const struct mx_pad_info *in = &pr[i].in;
+      static const char *const link[] = {"Port", "USB", "Bluetooth"};
+      nports++;
+      mx_snprintf(l, sizeof l, "P%d" DOT "%s", pr[i].port + 1, pad_kind(in->kind));
+      if (chosen && ticks < rumble_until)
+        mx_snprintf(v, sizeof v, "Rumbling");
+      else if (in->link == MX_PAD_LINK_PORT)
+        mx_snprintf(v, sizeof v, "Controller port %d", in->hw + 1);
+      else
+        mx_snprintf(v, sizeof v, "%s%s%s", link[in->link < 3 ? in->link : 0],
+                    in->flags & MX_PAD_INFO_CHARGING ? DOT "charging" : "",
+                    in->link == MX_PAD_LINK_BT && in->flags & MX_PAD_INFO_CABLE ? DOT "cable" : "");
+      line(x0, x1, yy, l, 0, chosen, 1);
+      /* at the right: the light's colour, the battery, the link */
+      float xr = x1;
+      if (in->battery != 255) {
+        xr -= 34;
+        battery(xr, mid, in->battery, in->flags & MX_PAD_INFO_CHARGING);
+        xr -= 14;
+      }
+      if (has_light(in->kind) && (in->rgb[0] | in->rgb[1] | in->rgb[2])) {
+        u32 rgb = (u32)in->rgb[0] << 16 | (u32)in->rgb[1] << 8 | in->rgb[2];
+        /* the light bar as it is, made bright enough to see its colour */
+        u32 m = in->rgb[0] > in->rgb[1] ? in->rgb[0] : in->rgb[1];
+        m = m > in->rgb[2] ? m : in->rgb[2];
+        if (m && m < 200) {
+          u32 r = in->rgb[0] * 200 / m, g = in->rgb[1] * 200 / m, b = in->rgb[2] * 200 / m;
+          rgb = r << 16 | g << 8 | b;
+        }
+        d_pill(xr - 14, mid - 7, xr, mid + 7, rgb);
+        xr -= 26;
+      }
+      float vw = d_text_w(FONT_SMALL, v);
+      d_text(FONT_SMALL, xr - vw, yy, v, argb(chosen ? C_WHITE : C_DIM, 1));
+      break;
+    }
+    case PR_PAIR: {
+      static const char *const st[] = {SYM_CROSS "  Pair a controller", "Looking: hold Share or Create with PS",
+                                       "Pairing", "Paired", "None found", "Did not pair",
+                                       "No Bluetooth adapter"};
+      const char *val = st[pairing.state < 7 ? pairing.state : 0];
+      if (pairing.state == MX_PAD_PAIR_DONE || pairing.state == MX_PAD_PAIR_CONNECTING) {
+        mx_snprintf(v, sizeof v, "%s %s", pairing.state == MX_PAD_PAIR_DONE ? "Paired:" : "Pairing", pad_kind(pairing.kind));
+        val = v;
+      }
+      line(x0, x1, yy, "Bluetooth", val, chosen, pairing.state != MX_PAD_PAIR_NO_DONGLE);
+      break;
+    }
+    case PR_BRIGHT:
+      line(x0, x1, yy, "Light bars", 0, chosen, 1);
+      seg(x1, yy, bright_l, 4, choice_of("pad.brightness", "25", bright_v, 4), chosen);
+      break;
+    case PR_IDLE:
+      line(x0, x1, yy, "Idle, off after", 0, chosen, 1);
+      seg(x1, yy, idle_l, 4, choice_of("pad.idle_off", "0", idle_v, 4), chosen);
+      break;
+    case PR_PAIRED: {
+      const u8 *a = pr[i].pd.addr;
+      mx_snprintf(l, sizeof l, "%s" DOT "paired", pad_kind(pr[i].pd.kind));
+      mx_snprintf(v, sizeof v, "%02x:%02x:%02x:%02x:%02x:%02x", a[0], a[1], a[2], a[3], a[4], a[5]);
+      line(x0, x1, yy, l, v, chosen, 0);
+      break;
+    }
+    }
+  }
+  if (!nports)
+    note(x0, y + ROW * pr_n, "No controller: plug one in, or pair one over Bluetooth.");
+  else
+    note(x0, y + ROW * pr_n, "Players follow the ports: the controller ports first,"),
+      note(x0, y + ROW * pr_n + 26, "then USB and Bluetooth in the order they came.");
+}
+
+/* the Controllers page's hints, for the row chosen */
+static const char *const *pads_hints(void) {
+  static const char *h[12];
+  int n = 0;
+  if (item < pr_n)
+    switch (pr[item].type) {
+    case PR_PAD:
+      if (has_light(pr[item].in.kind) && pr[item].in.id)
+        h[n++] = "L R", h[n++] = "Colour";
+      h[n++] = SYM_CROSS, h[n++] = "Motors";
+      if (pr[item].in.link == MX_PAD_LINK_BT)
+        h[n++] = SYM_SQUARE, h[n++] = "Disconnect";
+      break;
+    case PR_PAIR:
+      h[n++] = SYM_CROSS;
+      h[n++] = pairing.state == MX_PAD_PAIR_SEARCHING || pairing.state == MX_PAD_PAIR_CONNECTING ? "Stop" : "Pair";
+      break;
+    case PR_BRIGHT:
+    case PR_IDLE: h[n++] = "L R", h[n++] = "Change"; break;
+    case PR_PAIRED: h[n++] = SYM_SQUARE, h[n++] = "Forget"; break;
+    }
+  h[n++] = SYM_CIRCLE, h[n++] = "Back", h[n] = 0;
+  return h;
+}
+
+/* the Controllers page's buttons (up and down are the page's) */
+static void pads_input(u32 p) {
+  if (item >= pr_n)
+    return;
+  int d = p & MX_PAD_RIGHT ? 1 : p & MX_PAD_LEFT ? -1 : 0;
+  switch (pr[item].type) {
+  case PR_PAD: {
+    const struct mx_pad_info *in = &pr[item].in;
+    if (d && has_light(in->kind) && in->id) {
+      int c = (colour_of(in->id) + d + NCOLOURS) % NCOLOURS;
+      colour_set(in->id, c);
+    }
+    if (p & MX_PAD_CROSS && mx_pad_rumble(pr[item].port, 1, 160) >= 0)
+      rumble_until = ticks + 30;
+    if (p & MX_PAD_SQUARE && in->link == MX_PAD_LINK_BT && mx_pad_disconnect(pr[item].port) == 0)
+      toast(N_PAD, "Disconnected", pad_kind(in->kind), 0);
+    break;
+  }
+  case PR_PAIR:
+    if (p & MX_PAD_CROSS) {
+      int busy = pairing.state == MX_PAD_PAIR_SEARCHING || pairing.state == MX_PAD_PAIR_CONNECTING;
+      mx_pad_pair(busy ? 0 : 60);
+    }
+    break;
+  case PR_BRIGHT:
+  case PR_IDLE: {
+    int b = pr[item].type == PR_BRIGHT;
+    const char *key = b ? "pad.brightness" : "pad.idle_off";
+    const char *const *v = b ? bright_v : idle_v;
+    int c = choice_of(key, b ? "25" : "0", v, 4) + d + (p & MX_PAD_CROSS ? 1 : 0);
+    if (c != choice_of(key, b ? "25" : "0", v, 4)) {
+      cfg_set(key, v[(c + 4) % 4]);
+      cfg_save();
+    }
+    break;
+  }
+  case PR_PAIRED:
+    if (p & MX_PAD_SQUARE && mx_pad_forget(pr[item].pd.id) == 0)
+      toast(N_PAD, "Forgotten", pad_kind(pr[item].pd.kind), 0);
+    break;
+  }
 }
 
 static void page_system(float x0, float x1, float y) {
@@ -478,7 +710,8 @@ void settings_draw(void) {
   default: page_system(x0, x1, y); break;
   }
   if (ticks >= rumble_until && rumble_until) {
-    mx_pad_rumble(0, 0, 0), mx_pad_rumble(1, 0, 0);
+    for (int i = 0; i < MX_PAD_PORTS; i++)
+      mx_pad_rumble(i, 0, 0);
     rumble_until = 0;
   }
 
@@ -488,7 +721,7 @@ void settings_draw(void) {
   if (confirm_from >= 0)
     confirm_draw();
   else
-    hints_draw(edit ? h_edit : in_page ? h_page : h_list);
+    hints_draw(edit ? h_edit : in_page && page == P_PADS ? pads_hints() : in_page ? h_page : h_list);
   status_draw();
 }
 
@@ -596,6 +829,13 @@ void settings_input(void) {
     video_input(p);
     return;
   }
+  if (page == P_PADS) {
+    if (p & MX_PAD_CIRCLE)
+      in_page = 0;
+    else
+      pads_input(p);
+    return;
+  }
   if (page == P_STORAGE && item == st_n && p & (MX_PAD_LEFT | MX_PAD_RIGHT)) {
     /* the swap file's device: none, then the drives it may go on */
     int d = p & MX_PAD_RIGHT ? 1 : -1, at = st_pick;
@@ -637,10 +877,6 @@ void settings_input(void) {
       cfg_save();
       games_search();
     }
-    break;
-  case P_PADS:
-    if (mx_pad_connected(item) && mx_pad_rumble(item, 1, 160) >= 0)
-      rumble_until = ticks + 30;
     break;
   }
 }

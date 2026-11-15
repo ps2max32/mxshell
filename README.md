@@ -28,7 +28,10 @@ What it does now (PLAN.md, phase A):
   console's own SD mode), Network (`mc0:/MXOS/IPCONFIG.DAT`, used from the kernel's next start),
   Storage (the kernel's devices with size, free space where known, games and the swap file;
   cross on one: ready to remove; where MXOS's swap file is, or none; games from the PC),
-  Controllers (which ports have a pad; the motors tried),
+  Controllers (kernel version 28: each pad with its player, kind, link, battery, charging and
+  light bar; left and right choose a DS4's or DualSense's colour, cross tries the motors,
+  square ends a Bluetooth link; pairing over Bluetooth; the light bars' brightness and turning
+  idle Bluetooth pads off; the paired pads not there, square forgets one),
   System (the shell, the kernel's version, `SERVICES.CFG`).
 - **Files** (`files/`, an app in Apps: `make files` makes `PS2MAX/files/` with `FILES.ELF` and its
   `game.ini`, for a device's `PS2MAX/`): the devices the kernel lists and the PC (host:);
