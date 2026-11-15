@@ -242,7 +242,7 @@ void cfg_load(void);
 void cfg_save(void);
 
 /* ---- screens ---- */
-enum { SCR_BOOT, SCR_HOME, SCR_HUB, SCR_SETTINGS, SCR_LAUNCH, SCR_DITHER };
+enum { SCR_BOOT, SCR_HOME, SCR_HUB, SCR_SETTINGS, SCR_LAUNCH, SCR_DITHER, SCR_GAMEPADS };
 extern int screen;
 extern u32 ticks;
 extern u32 pad_pressed, pad_held;
@@ -272,6 +272,23 @@ void dither_draw(void);
 void dither_input(void);
 int focus_game(void); /* the game the shelf has lit, or -1 */
 void status_draw(void);
+/* the tray at the top right (tray.c): the players' pads, the devices */
+void tray_draw(void);
+extern int pad_on; /* the pads started (main.c) */
+/* a settings page's rows (settings.c): a row with its label and value, a
+   note under the rows, choices side by side (returns their left edge) */
+void row_line(float x0, float x1, float y, const char *label, const char *value, int chosen, int on);
+void row_note(float x, float y, const char *s);
+float row_seg(float x1, float y, const char *const *l, int n, int on, int lit);
+/* the controllers' page (pads.c), in Settings and in the game menu: act,
+   it takes the buttons; crumb, a label above it (the game menu's) */
+void pads_enter(void);
+void pads_draw(float x0, float x1, float y, int act, const char *crumb);
+int pads_input(u32 pressed); /* 0: circle, leave it */
+const char *const *pads_hints(const char *back);
+/* the game menu's Controllers (hub.c) */
+void gamepads_draw(void);
+void gamepads_input(void);
 /* hints at the bottom right: pairs of symbol, label; NULL ends */
 void hints_draw(const char *const *pairs);
 

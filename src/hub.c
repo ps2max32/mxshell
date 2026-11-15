@@ -136,8 +136,10 @@ void hub_draw(void) {
   float bx = x;
   int paused = g == run_game;
   bx += d_button(bx, y, SYM_CROSS, paused ? "Resume" : "Play", 1) + 12;
-  if (paused)
+  if (paused) {
+    bx += d_button(bx, y, SYM_TRIANGLE, "Controllers", 0) + 12;
     bx += d_button(bx, y, SYM_SQUARE, "Close", 0) + 12;
+  }
   y += 82;
   d_rect(x, y - 18, x1, y - 17, argb(C_WHITE, 0.08f), argb(C_WHITE, 0.08f));
   char v[64];
@@ -160,7 +162,8 @@ void hub_draw(void) {
     fact(x, y, x1 - x, "Saves", gm->saves[0] ? "None yet" : "Kept by the game itself");
 
   static const char *const hints[] = {SYM_CROSS, "Play", SYM_CIRCLE, "Back", 0};
-  static const char *const hints_paused[] = {SYM_CROSS, "Resume", SYM_SQUARE, "Close", SYM_CIRCLE, "Back", 0};
+  static const char *const hints_paused[] = {SYM_CROSS, "Resume", SYM_TRIANGLE, "Controllers", SYM_SQUARE, "Close",
+                                             SYM_CIRCLE, "Back", 0};
   hints_draw(paused ? hints_paused : hints);
   ui_fade = 1;
   status_draw();
@@ -173,10 +176,48 @@ void hub_input(void) {
     leaving = 1;
   if (pad_pressed & MX_PAD_CROSS)
     screen = SCR_LAUNCH, hub_game = -1;
-  else if (pad_pressed & MX_PAD_SQUARE && hub_game >= 0 && hub_game == run_game) {
+  else if (pad_pressed & MX_PAD_TRIANGLE && hub_game >= 0 && hub_game == run_game) {
+    pads_enter();
+    screen = SCR_GAMEPADS;
+  } else if (pad_pressed & MX_PAD_SQUARE && hub_game >= 0 && hub_game == run_game) {
     char m[48];
     strncpy(m, games[hub_game].title, sizeof m - 1), m[sizeof m - 1] = 0;
     game_close();
     toast(N_INFO, "Closed", m, 0);
   }
+}
+
+/* the game menu's Controllers: the same page as Settings › Controllers
+   (pads.c), the paused game at the left; circle goes back to the game
+   menu, the home button into the game (main.c) */
+void gamepads_draw(void) {
+  int g = run_game;
+  if (g < 0) { /* the game ended meanwhile */
+    screen = SCR_HOME;
+    return;
+  }
+  room_begin(-1);
+  room_light(MARGIN + 130, 240, 360, 280, 0.06f);
+  d_begin_2d();
+  room_draw();
+  float x0 = MARGIN + 260 + 64, x1 = SCR_W - MARGIN;
+  if (x1 > x0 + 620)
+    x1 = x0 + 620;
+  /* the game, paused: what circle goes back to */
+  d_label(MARGIN, 120, "Paused", argb(C_LAMP, 1));
+  d_text_fit(FONT_TITLE, FONT_BODY, MARGIN, 162, x0 - MARGIN - 40, games[g].title, argb(C_WHITE, 1));
+  row_note(MARGIN, 200, "Circle: its menu.");
+  row_note(MARGIN, 226, "Home: back into the game.");
+  char crumb[64];
+  mx_snprintf(crumb, sizeof crumb, "%s" DOT "Controllers", games[g].title);
+  d_label(x0, 110, crumb, argb(C_LAMP, 1));
+  d_text(FONT_DISP, x0 - 2, 162, "Controllers", argb(C_WHITE, 1));
+  pads_draw(x0, x1, 264, 1, 0);
+  hints_draw(pads_hints("Game menu"));
+  tray_draw();
+}
+
+void gamepads_input(void) {
+  if (!pads_input(pad_pressed))
+    screen = SCR_HUB;
 }

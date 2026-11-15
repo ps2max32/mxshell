@@ -50,7 +50,8 @@ MX_CORE_HEAP(512 << 10);
 
 int screen = SCR_BOOT;
 u32 pad_pressed, pad_held;
-static int pad_on, input_wait;
+int pad_on;
+static int input_wait;
 static u32 screen_at, back_at;
 
 void status_draw(void) {
@@ -67,17 +68,7 @@ void status_draw(void) {
     }
     x += w + 30;
   }
-  /* the pads: a ring per port, lit when a pad is there */
-  float rx = SCR_W - MARGIN - 15;
-  for (int p = 1; p >= 0; p--) {
-    int on = pad_on && mx_pad_connected(p);
-    float cy = TOP - 6;
-    d_ring(rx, cy, 15, argb(C_WHITE, on ? 0.30f : 0.12f));
-    char s[4] = {'P', (char)('1' + p), 0};
-    float w = d_label_w(s) - 2;
-    d_label(rx - w / 2, cy + text_mid(FONT_LABEL) * 1.15f, s, argb(on ? C_WHITE : C_FAINT, 1));
-    rx -= 42;
-  }
+  tray_draw();
 }
 
 /* ---- power-on: a point of light, a horizon, the mark, the shelf ----
@@ -479,6 +470,8 @@ int main(int argc, char **argv) {
       start = SCR_HUB;
     else if (!strcmp(a, "screen=settings"))
       start = SCR_SETTINGS;
+    else if (!strcmp(a, "screen=gamepads")) /* tests: the game menu's Controllers, the first game as if paused */
+      run_game = 0, start = SCR_GAMEPADS;
     else if (!strcmp(a, "screen=dither"))
       start = SCR_DITHER;
     else if (!strncmp(a, "dither=", 7))
@@ -598,6 +591,9 @@ int main(int argc, char **argv) {
     case SCR_DITHER:
       dither_input();
       break;
+    case SCR_GAMEPADS:
+      gamepads_input();
+      break;
     }
     if (screen == SCR_LAUNCH && !screen_at)
       screen_at = ticks;
@@ -625,6 +621,9 @@ int main(int argc, char **argv) {
       break;
     case SCR_DITHER:
       dither_draw();
+      break;
+    case SCR_GAMEPADS:
+      gamepads_draw();
       break;
     }
     d_begin_2d();

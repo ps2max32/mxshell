@@ -28,10 +28,10 @@ What it does now (PLAN.md, phase A):
   console's own SD mode), Network (`mc0:/MXOS/IPCONFIG.DAT`, used from the kernel's next start),
   Storage (the kernel's devices with size, free space where known, games and the swap file;
   cross on one: ready to remove; where MXOS's swap file is, or none; games from the PC),
-  Controllers (kernel version 28: each pad with its player, kind, link, battery, charging and
-  light bar; left and right choose a DS4's or DualSense's colour, cross tries the motors,
-  square ends a Bluetooth link; pairing over Bluetooth; the light bars' brightness and turning
-  idle Bluetooth pads off; the paired pads not there, square forgets one),
+  Controllers (kernel version 28, `src/pads.c`: the pads connected, each with its player, kind,
+  link, battery and light bar, cross opens its own page (state, light bar colour, motors,
+  disconnect, forget); under them what is for all controllers: pairing over Bluetooth, the light
+  bars' brightness, turning idle Bluetooth pads off, the paired pads not there),
   System (the shell, the kernel's version, `SERVICES.CFG`).
 - **Files** (`files/`, an app in Apps: `make files` makes `PS2MAX/files/` with `FILES.ELF` and its
   `game.ini`, for a device's `PS2MAX/`): the devices the kernel lists and the PC (host:);
@@ -65,6 +65,12 @@ What it does now (PLAN.md, phase A):
   "no swap file") are not shown.
 - **Devices**: the kernel (version 26) loads the storage drivers and lists the devices
   (`<mx/dev.h>`); when one comes or goes the shelf is filled again.
+- **Tray** (top right, `src/tray.c`): a ring per pad in its light bar's colour with its player
+  number and its battery as a bar under it (lamp while charging, orange when low); left of them
+  the memory cards, USB drives, hard disk and SD card, the one with the swap file in the lamp's
+  colour.
+- **Game menu** (the home button in a game: the game's hub, paused): Resume, Controllers (the
+  same page as Settings › Controllers; circle back to the menu, home into the game), Close.
 - **Power-on**: a point of light, a horizon, the mark, then the shelf.
 
 The games are where mxshell finds them, `<device>/PS2MAX/<game>/game.ini`
