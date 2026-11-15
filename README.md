@@ -133,10 +133,13 @@ that fades out would leave a dark ring. The background (the room: floor, the con
 its pool, the shadows) and the tiles with their reflections are therefore worked out per
 vertex on the EE and drawn opaque, once; opaque colours get the half step added.
 
-The GS does not smooth a triangle's edges. Since the colour under a shape is known (the room,
-or a card's colour), every rounded shape (tiles, pills, buttons, rings, cards) gets a rim of a
-pixel whose colour goes from its own to what is under it, per vertex: the GS's interpolation
-smooths the edge, with no blending and no render to texture.
+The GS does not smooth a triangle's edges. Every rounded shape is drawn one way, as a surface
+(`src/surface.c`, used by the shell, Files and Media): cards, notifications, dialogs,
+highlighted rows, pills, buttons, rings and bars. Its rim goes from 1.5 pixels inside its
+outline to nothing a pixel outside, blended, so its corners look right over anything (the room,
+a tile, another card); only the rim is translucent on an opaque surface. A lit surface takes the
+lamp's colour along its top edge, round the corners and fading out there, as the game tiles
+do (`tile.c`, the same `lamp_edge`). Fading and sliding in keep the corners round.
 
 Covers: `tools/mk-covers.py --boxart <dir> <out>` makes `cover.t8` (128 x 176, mxshell's)
 and `coverhd.t8` (256 x 361, a DVD case) from box art you have (`<id>.png` or `.jpg`);

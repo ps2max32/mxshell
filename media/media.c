@@ -897,9 +897,7 @@ static void draw_devices(void) {
     int chosen = d == dsel, here = d == cdev;
     if (chosen) {
       float a = pane == P_DEVICES ? 0.09f : 0.04f;
-      d_rect(x0 + 8, y - 32, x1 - 8, y + 26, argb(C_WHITE, a), argb(C_WHITE, a * 0.5f));
-      if (pane == P_DEVICES)
-        d_rect(x0 + 8, y - 32, x1 - 8, y - 31, argb(C_LAMP, 0.6f), argb(C_LAMP, 0.6f));
+      d_highlight(x0 + 8, y - 32, x1 - 8, y + 26, 10, a, a * 0.5f, pane == P_DEVICES ? 0.6f : 0);
     }
     d_text(FONT_BODY, x0 + 20, y - 4, devs[d].name, argb(here || chosen ? C_WHITE : C_DIM, 1));
     static const char *const st[] = {"Not looked at yet", "Looking", "", "Not found"};
@@ -943,9 +941,7 @@ static void draw_list(void) {
     float y = TOPY + 76 + r * ROW;
     if (i == sel) {
       float a = pane == P_LIST ? 0.09f : 0.04f;
-      d_rect(x0 + 8, y - 25, x1 - 8, y + 11, argb(C_WHITE, a), argb(C_WHITE, a * 0.5f));
-      if (pane == P_LIST)
-        d_rect(x0 + 8, y - 25, x1 - 8, y - 24, argb(C_LAMP, 0.6f), argb(C_LAMP, 0.6f));
+      d_highlight(x0 + 8, y - 25, x1 - 8, y + 11, 8, a, a * 0.5f, pane == P_LIST ? 0.6f : 0);
     }
     char p[256];
     join(p, sizeof p, cwd, e->name);
@@ -1002,7 +998,8 @@ static void draw_preview(void) {
     float px = x0 + 20 + (bw - w) / 2, py = y + (bh - h) / 2;
     d_image(&thumb, px, py, px + w, py + h, 1);
   } else {
-    d_rect(x0 + 20, y, x1 - 20, y + bh, argb(C_SLAB, 1), argb(C_DEEP, 1));
+    surface_draw(&(struct surface){.x0 = x0 + 20, .y0 = y, .x1 = x1 - 20, .y1 = y + bh, .r = 10, .fill = C_SLAB,
+                                   .glass = -1, .a = 1, .grad = 1, .fill_b = C_DEEP, .fa = 1, .fa_b = 1});
     float cx = (x0 + x1) / 2;
     if (e->dir)
       folder_icon(cx - 10, y + bh / 2 + 6, argb(C_FAINT, 1));
@@ -1136,10 +1133,9 @@ static void draw_video(void) {
   /* where it is: a line of the lamp along the length */
   u32 now = mx_movie_time_ms(movie), len = in->duration_ms;
   float lx0 = MARGIN, lx1 = SCR_W - MARGIN, ly = SCR_H - 66;
-  d_rect(lx0, ly, lx1, ly + 3, argb(C_WHITE, 0.16f * a), argb(C_WHITE, 0.16f * a));
+  float k = len ? clampf((float)now / len, 0, 1) : 0;
+  d_bar(lx0, ly, lx1, ly + 3, k, C_LAMP, a);
   if (len) {
-    float k = clampf((float)now / len, 0, 1);
-    d_rect(lx0, ly, lx0 + (lx1 - lx0) * k, ly + 3, argb(C_LAMP, a), argb(C_LAMP, a));
     d_glow(lx0 + (lx1 - lx0) * k, ly + 1.5f, 12, 8, argb(C_LAMP, 0.5f * a));
   }
   char t0[16], t1[16], m[40];
@@ -1191,10 +1187,9 @@ static void draw_music(void) {
   d_text(FONT_BODY, tx, ty + 92, where, argb(C_DIM, 1));
   /* where it is */
   float ly = ty + 140;
-  d_rect(tx, ly, tx1, ly + 3, argb(C_WHITE, 0.14f), argb(C_WHITE, 0.14f));
+  float p = mu.len_ms ? clampf((float)mu.pos_ms / mu.len_ms, 0, 1) : 0;
+  d_bar(tx, ly, tx1, ly + 3, p, C_LAMP, 1);
   if (mu.len_ms) {
-    float p = clampf((float)mu.pos_ms / mu.len_ms, 0, 1);
-    d_rect(tx, ly, tx + (tx1 - tx) * p, ly + 3, argb(C_LAMP, 1), argb(C_LAMP, 1));
     d_glow(tx + (tx1 - tx) * p, ly + 1.5f, 12, 8, argb(C_LAMP, 0.5f));
   }
   char a[16], b[16];

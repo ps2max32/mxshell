@@ -137,8 +137,7 @@ static void launch_draw(void) {
   d_begin_2d();
   float p = clampf((t - 0.4f) / 0.5f, 0, 1), lw = 300, lx = (SCR_W - lw) / 2, ly = 596;
   if (k > 0.99f) {
-    d_rect(lx, ly, lx + lw, ly + 3, argb(C_WHITE, 0.14f), argb(C_WHITE, 0.14f));
-    d_rect(lx, ly, lx + lw * p, ly + 3, argb(C_LAMP, 1), argb(C_LAMP, 1));
+    d_bar(lx, ly, lx + lw, ly + 3, p, C_LAMP, 1);
     d_glow(lx + lw * p, ly + 1.5f, 14, 10, argb(C_LAMP, 0.5f));
   }
   float b = clampf((t - 0.9f) / 0.15f, 0, 1);

@@ -600,9 +600,7 @@ static void draw_devices(void) {
     int chosen = d == dsel, here = d == cdev;
     if (chosen) {
       float a = pane == P_DEVICES ? 0.09f : 0.04f;
-      d_rect(x0 + 8, y - 32, x1 - 8, y + 26, argb(C_WHITE, a), argb(C_WHITE, a * 0.5f));
-      if (pane == P_DEVICES)
-        d_rect(x0 + 8, y - 32, x1 - 8, y - 31, argb(C_LAMP, 0.6f), argb(C_LAMP, 0.6f));
+      d_highlight(x0 + 8, y - 32, x1 - 8, y + 26, 10, a, a * 0.5f, pane == P_DEVICES ? 0.6f : 0);
     }
     d_text(FONT_BODY, x0 + 20, y - 4, devs[d].name, argb(here || chosen ? C_WHITE : C_DIM, 1));
     static const char *const st[] = {"Not looked at yet", "Looking", "", "Not found"};
@@ -643,9 +641,7 @@ static void draw_list(void) {
     float y = TOPY + 76 + r * ROW;
     if (i == sel) {
       float a = pane == P_LIST ? 0.09f : 0.04f;
-      d_rect(x0 + 8, y - 25, x1 - 8, y + 11, argb(C_WHITE, a), argb(C_WHITE, a * 0.5f));
-      if (pane == P_LIST)
-        d_rect(x0 + 8, y - 25, x1 - 8, y - 24, argb(C_LAMP, 0.6f), argb(C_LAMP, 0.6f));
+      d_highlight(x0 + 8, y - 25, x1 - 8, y + 11, 8, a, a * 0.5f, pane == P_LIST ? 0.6f : 0);
     }
     u32 ic = e->mark ? C_LAMP : i == sel ? C_DIM : C_FAINT;
     if (e->mark) /* selected: the lamp's mark before it */
@@ -759,8 +755,7 @@ static void draw_preview(void) {
 static void scrim(void) { d_rect(0, 0, SCR_W, SCR_H, argb(C_INK, 0.62f), argb(C_INK, 0.62f)); }
 static void panel(float x, float y, float w, float h) {
   d_shadow(x + w / 2, y + h / 2, w * 0.7f, h * 0.9f, 0.5f);
-  d_card(x, y, x + w, y + h, 20, 0x17191E);
-  d_rect(x + 20, y, x + w - 20, y + 1, argb(C_LAMP, 0.55f), argb(C_LAMP, 0.55f));
+  d_card_lit(x, y, x + w, y + h, 20, 0x17191E, 1, 0.55f);
 }
 
 static void draw_menu(void) {
@@ -770,8 +765,7 @@ static void draw_menu(void) {
   for (int i = 0; i < nacts; i++) {
     float yy = y + 60 + i * 50;
     if (i == msel) {
-      d_rect(x + 12, yy - 32, x + w - 12, yy + 14, argb(C_WHITE, 0.09f), argb(C_WHITE, 0.04f));
-      d_rect(x + 12, yy - 32, x + w - 12, yy - 31, argb(C_LAMP, 0.6f), argb(C_LAMP, 0.6f));
+      d_highlight(x + 12, yy - 32, x + w - 12, yy + 14, 10, 0.09f, 0.04f, 0.6f);
     }
     char l[48];
     if (acts[i] == A_PASTE)
@@ -810,7 +804,7 @@ static void draw_keys(void) {
   panel(x, y, w, h);
   d_label(x + 32, y + 40, kfor == K_MKDIR ? "New folder" : "Rename", argb(C_LAMP, 1));
   /* the name, with a caret */
-  d_rect(x + 32, y + 56, x + w - 32, y + 104, argb(C_WHITE, 0.06f), argb(C_WHITE, 0.06f));
+  d_highlight(x + 32, y + 56, x + w - 32, y + 104, 10, 0.06f, 0.06f, 0);
   float tx = d_text_fit(FONT_BODY, FONT_SMALL, x + 48, y + 88, w - 120, kbuf, argb(C_WHITE, 1));
   if ((ticks / 20) & 1)
     d_rect(tx + 2, y + 66, tx + 4, y + 94, argb(C_LAMP, 1), argb(C_LAMP, 1));
@@ -823,7 +817,7 @@ static void draw_keys(void) {
       if (on)
         d_pill(kx0, ky0, kx0 + kw, ky0 + kh, C_WHITE);
       else
-        d_rect(kx0, ky0, kx0 + kw, ky0 + kh, argb(C_WHITE, 0.05f), argb(C_WHITE, 0.03f));
+        d_highlight(kx0, ky0, kx0 + kw, ky0 + kh, 8, 0.05f, 0.03f, 0);
       char ch[2] = {krows[kshift][r][c], 0};
       float cw = d_text_w(FONT_BODY, ch);
       d_text(FONT_BODY, kx0 + (kw - cw) / 2, ky0 + kh / 2 + text_mid(FONT_BODY), ch, argb(on ? C_INK : C_WHITE, 1));
@@ -835,7 +829,7 @@ static void draw_keys(void) {
     if (on)
       d_pill(kx0, sy, kx0 + sw, sy + kh, C_WHITE);
     else
-      d_rect(kx0, sy, kx0 + sw, sy + kh, argb(C_WHITE, 0.05f), argb(C_WHITE, 0.03f));
+      d_highlight(kx0, sy, kx0 + sw, sy + kh, 8, 0.05f, 0.03f, 0);
     const char *l = i == 0 && kshift ? "shift" : kspecial[i];
     float lw = d_text_w(FONT_SMALL, l);
     d_text(FONT_SMALL, kx0 + (sw - lw) / 2, sy + kh / 2 + text_mid(FONT_SMALL), l, argb(on ? C_INK : C_DIM, 1));
@@ -852,8 +846,7 @@ static void draw_busy(void) {
   float k = job.total ? (float)job.done / (float)job.total : job.nfiles ? (float)job.files / (float)job.nfiles : 0;
   k = clampf(k, 0, 1);
   float bx0 = x + 32, bx1 = x + w - 32, by = y + 126;
-  d_rect(bx0, by, bx1, by + 4, argb(C_WHITE, 0.14f), argb(C_WHITE, 0.14f));
-  d_rect(bx0, by, bx0 + (bx1 - bx0) * k, by + 4, argb(C_LAMP, 1), argb(C_LAMP, 1));
+  d_bar(bx0, by, bx1, by + 4, k, C_LAMP, 1);
   char a[24], b[24], m[80];
   fmt_size(a, sizeof a, job.done), fmt_size(b, sizeof b, job.total);
   mx_snprintf(m, sizeof m, "%d of %d files" DOT "%s of %s", job.files, job.nfiles, a, b);

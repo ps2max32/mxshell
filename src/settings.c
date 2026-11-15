@@ -178,8 +178,7 @@ static float pitch = ROW;
 static void line(float x0, float x1, float y, const char *label, const char *value, int chosen, int on) {
   float mid = y - text_mid(FONT_BODY), top = mid - pitch * 0.5f, bottom = mid + pitch * 0.5f;
   if (chosen) {
-    d_rect(x0 - 18, top, x1 + 18, bottom, argb(C_WHITE, 0.07f), argb(C_WHITE, 0.03f));
-    d_rect(x0 - 18, top, x1 + 18, top + 1, argb(C_LAMP, 0.5f), argb(C_LAMP, 0.5f));
+    d_highlight(x0 - 18, top, x1 + 18, bottom, 10, 0.07f, 0.03f, 0.5f);
   }
   float lw = d_text(FONT_BODY, x0, y, label, argb(on ? C_WHITE : C_FAINT, 1)) - x0;
   if (value)
@@ -207,8 +206,7 @@ static float seg(float x1, float y, const char *const *l, int n, int on, int lit
 static void vrow(float x0, float x1, float y, const char *label, const char *sub, int chosen) {
   float mid = y - text_mid(FONT_BODY);
   if (chosen) {
-    d_rect(x0 - 18, mid - 26, x1 + 18, mid + 26, argb(C_WHITE, 0.07f), argb(C_WHITE, 0.03f));
-    d_rect(x0 - 18, mid - 26, x1 + 18, mid - 25, argb(C_LAMP, 0.5f), argb(C_LAMP, 0.5f));
+    d_highlight(x0 - 18, mid - 26, x1 + 18, mid + 26, 10, 0.07f, 0.03f, 0.5f);
   }
   d_text(FONT_BODY, x0, sub ? y - 9 : y, label, argb(C_WHITE, 1));
   if (sub)
@@ -225,9 +223,8 @@ static void page_video(float x0, float x1, float y) {
   for (int f = 0; f < NFAMS; f++) {
     float cx = x0 + (cw + gap) * f;
     int on = f == vfam, lit = on && cur == VR_FAMILY;
-    d_rect(cx, cy, cx + cw, cy + ch, argb(C_WHITE, on ? (lit ? 0.12f : 0.08f) : 0.035f), argb(C_WHITE, on ? 0.04f : 0.015f));
-    if (on)
-      d_rect(cx, cy, cx + cw, cy + 2, argb(C_LAMP, lit ? 1 : 0.5f), argb(C_LAMP, lit ? 1 : 0.5f));
+    d_highlight(cx, cy, cx + cw, cy + ch, 10, on ? (lit ? 0.12f : 0.08f) : 0.035f, on ? 0.04f : 0.015f,
+                on ? (lit ? 1 : 0.5f) : 0);
     d_text_fit(FONT_BUTTON, FONT_SMALL, cx + 12, cy + 34, cw - 20, fams[f].name, argb(on ? C_WHITE : C_DIM, 1));
     const char *sub = f == uf ? "In use" : fams[f].size;
     if (f == uf || cw >= 150) /* 4:3: the sizes do not fit, only "In use" */
@@ -433,8 +430,7 @@ static void confirm_draw(void) {
   float w = 520, h = 190, x = (SCR_W - w) / 2, y = 250;
   d_rect(0, 0, SCR_W, SCR_H, argb(C_INK, 0.6f), argb(C_INK, 0.6f));
   d_shadow(x + w / 2, y + h / 2, w * 0.7f, h * 0.9f, 0.5f);
-  d_rect(x, y, x + w, y + h, argb(0x17191E, 0.97f), argb(0x131519, 0.97f));
-  d_rect(x, y, x + w, y + 1, argb(C_LAMP, 0.55f), argb(C_LAMP, 0.55f));
+  d_card_lit(x, y, x + w, y + h, 14, 0x17191E, 1, 0.55f);
   d_text(FONT_TITLE, x + 32, y + 58, "Keep this mode?", argb(C_WHITE, 1));
   char m[48];
   int left = (int)((float)(confirm_until - ticks) * frame_dt) + 1;

@@ -88,15 +88,38 @@ extern int dither_bias;
 void d_glow(float cx, float cy, float rx, float ry, u32 argb);
 /* a cone of light from (cx, y0) widening to rx at y1, added */
 void d_cone(float cx, float y0, float y1, float rx, u32 argb);
-/* rounded shapes with smooth edges (draw.c): opaque, each edge a pixel
-   from the shape's colour to what is under it, the room or the colour set
-   by aa_under (a card under them) */
+/* surfaces (surface.c): every rounded shape, with the same smooth edge
+   (a rim that blends with what is under it) and the same light (the
+   lamp's colour along the top edge, round the corners) */
+struct surface {
+  float x0, y0, x1, y1, r;
+  u32 fill;    /* rgb */
+  float glass; /* >= 0: in place of fill, what is under it lighter by glass */
+  u32 line;    /* an outline of a pixel, argb; 0: none */
+  float lamp;  /* 0..1: the lamp along the top edge */
+  float a;     /* the whole surface's opacity (1: opaque inside) */
+  int hollow;  /* only the line, no inside (a ring) */
+  int grad;    /* the fill from fill at the top (opacity fa) to fill_b at the bottom (fa_b) */
+  u32 fill_b;
+  float fa, fa_b;
+};
+void surface_draw(const struct surface *s);
+/* the lamp's part of an edge whose outward normal has ny (-1: straight up) */
+float lamp_edge(float ny, float lamp);
+void d_vertex(float x, float y, const float rgb[3], float a);
+/* glass takes the colour under it: the room's, or the one set by aa_under */
 void aa_under(u32 rgb);
 void aa_under_room(void);
 void d_pill(float x0, float y0, float x1, float y1, u32 rgb);
 /* glass: what is under it, lighter by lighter (0..255), with an outline */
 void d_pill_glass(float x0, float y0, float x1, float y1, float lighter, u32 line_argb);
 void d_card(float x0, float y0, float x1, float y1, float radius, u32 rgb);
+/* a card with the lamp along its top (0..1) and an opacity a */
+void d_card_lit(float x0, float y0, float x1, float y1, float radius, u32 rgb, float a, float lamp);
+/* a translucent white highlight (a chosen row), with the lamp along its top */
+void d_highlight(float x0, float y0, float x1, float y1, float r, float a_top, float a_bottom, float lamp);
+/* a bar: a faint track, and the part k (0..1) in c */
+void d_bar(float x0, float y0, float x1, float y1, float k, u32 c, float a);
 /* a ring of a pixel */
 void d_ring(float cx, float cy, float r, u32 line_argb);
 /* a soft shadow: a dark ellipse, blended */

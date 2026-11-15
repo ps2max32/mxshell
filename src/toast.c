@@ -212,10 +212,8 @@ static int split(const char *s, float w) {
   return best;
 }
 
-static void icon(int kind, float cx, float cy, u32 c, u32 card) {
-  aa_under(card);
+static void icon(int kind, float cx, float cy, u32 c) {
   d_ring(cx, cy, 20, argb(C_WHITE, 0.12f));
-  aa_under_room();
   switch (kind) {
   case N_PAD:
     d_rect(cx - 10, cy - 5, cx + 10, cy + 3, c, c);
@@ -255,15 +253,9 @@ void toast_draw(void) {
     float fade = a * dim;
     /* opaque once in (16-bit colour: pn.h); the older ones darker */
     u32 cardc = shown == 0 ? 0x161719u : 0x121315u;
-    if (a > 0.98f)
-      d_card(x0, y, x1, y + h, 8, cardc);
-    else
-      d_rect(x0, y, x1, y + h, argb(cardc, a), argb(cardc, a));
-    if (shown == 0)
-      d_rect(x0 + 8, y, x1 - 8, y + 1, argb(C_LAMP, 0.55f * fade), argb(C_LAMP, 0.55f * fade));
+    d_card_lit(x0, y, x1, y + h, 10, cardc, a, shown == 0 ? 0.55f : 0);
     u32 ic = n->kind == N_WARN ? C_WARN : shown == 0 ? C_LAMP : C_DIM;
-    if (a > 0.98f)
-      icon(n->kind, x0 + 36 * s, y + h * 0.5f, argb(ic, fade), shown == 0 ? 0x161719u : 0x121315u);
+    icon(n->kind, x0 + 36 * s, y + h * 0.5f, argb(ic, fade));
     d_text_fit(FONT_BUTTON, FONT_SMALL, x0 + 70 * s, y + 30 * s, w - 86 * s, n->title, argb(C_WHITE, fade));
     char l1[MX_NOTIFY_TEXT];
     memcpy(l1, n->text, (u32)cut), l1[cut] = 0;
@@ -274,8 +266,7 @@ void toast_draw(void) {
       /* the memory in use: amber from 85 % */
       float bx0 = x0 + 70 * s, bx1 = x1 - 16 * s, by = y + tb - 4 * s, bw = (bx1 - bx0) * clampf(n->bar, 0, 1);
       u32 bc = n->bar >= 0.85f ? C_WARN : C_LAMP;
-      d_rect(bx0, by, bx1, by + 4 * s, argb(C_WHITE, 0.12f * fade), argb(C_WHITE, 0.12f * fade));
-      d_rect(bx0, by, bx0 + bw, by + 4 * s, argb(bc, fade), argb(bc, fade));
+      d_bar(bx0, by, bx1, by + 4 * s, bw / (bx1 - bx0), bc, fade);
     }
     if (n->action && shown == 0) {
       float ay = y + h - 14 * s;

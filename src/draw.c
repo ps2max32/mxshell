@@ -367,139 +367,16 @@ void d_cone(float cx, float y0, float y1, float rx, u32 c) {
 
 void d_shadow(float cx, float cy, float rx, float ry, float a) { soft_ellipse(cx, cy, rx, ry, 0x000000, a); }
 
-/* ---- smooth edges ----
-   The GS does not smooth a triangle's edges. The colour under a shape is
-   known (the room, or a colour given), so a shape gets a rim of a pixel
-   whose colour goes from its own to what is under it, per vertex: the GS
-   interpolates it, and the edge is smooth without blending (opaque, so
-   16-bit colour is dithered once). Shapes are rounded rectangles: pills,
-   rings, cards. */
-static int under_set;
-static u32 under_rgb;
-void aa_under(u32 rgb) { under_set = 1, under_rgb = rgb; }
-void aa_under_room(void) { under_set = 0; }
-
-static void under_at(float x, float y, float rgb[3]) {
-  if (under_set)
-    rgb[0] = (float)(under_rgb >> 16 & 255), rgb[1] = (float)(under_rgb >> 8 & 255), rgb[2] = (float)(under_rgb & 255);
+/* a vertex of a shape (surface.c): opaque (with the dither's half step,
+   see bias) or translucent */
+void d_vertex(float x, float y, const float rgb[3], float a) {
+  if (a >= 0.999f)
+    glColor4ub(bias((u32)clampf(rgb[0], 0, 250)), bias((u32)clampf(rgb[1], 0, 250)), bias((u32)clampf(rgb[2], 0, 250)), 255);
   else
-    room_col(x, y, rgb);
+    glColor4ub((GLubyte)clampf(rgb[0], 0, 255), (GLubyte)clampf(rgb[1], 0, 255), (GLubyte)clampf(rgb[2], 0, 255),
+               (GLubyte)(clampf(a, 0, 1) * 255.0f + 0.5f));
+  glVertex2f(x, y);
 }
-
-static float snapx(float x) { return (float)(int)(x * px_x + 0.5f) / px_x; }
-static float snapy(float y) { return (float)(int)(y * px_y + 0.5f) / px_y; }
-
-#define CSEG 10 /* segments of a corner */
-#define OUTLINE (4 * (CSEG + 1))
-/* the outline of a rounded rectangle, clockwise from the top left corner's
-   start, with the outward normal of each point */
-static int outline(float x0, float y0, float x1, float y1, float r, float *px, float *py, float *nx, float *ny) {
-  static const float cx_sign[4] = {1, -1, -1, 1}, cy_sign[4] = {1, 1, -1, -1};
-  float ccx[4] = {x0 + r, x1 - r, x1 - r, x0 + r}, ccy[4] = {y0 + r, y0 + r, y1 - r, y1 - r};
-  /* the directions, once (sinf and cosf for every point of every shape
-     were a good part of a frame) */
-  static float cs[OUTLINE], sn[OUTLINE];
-  if (!cs[0])
-    for (int c = 0, k = 0; c < 4; c++)
-      for (int i = 0; i <= CSEG; i++, k++) {
-        float a = 3.1415926f + 1.5707963f * (c + (float)i / CSEG);
-        cs[k] = cosf(a), sn[k] = sinf(a);
-      }
-  int n = 0;
-  for (int c = 0; c < 4; c++)
-    for (int i = 0; i <= CSEG; i++) {
-      px[n] = ccx[c] + cs[n] * r, py[n] = ccy[c] + sn[n] * r, nx[n] = cs[n], ny[n] = sn[n];
-      n++;
-    }
-  (void)cx_sign, (void)cy_sign;
-  return n;
-}
-
-/* a shape's part of ui_fade: the last of it, and fast. A light pill half
-   way is a grey patch with no text to read on it, so text comes first and
-   goes last */
-static float shape_fade(void) {
-  float f = clampf((ui_fade - 0.6f) / 0.4f, 0, 1);
-  return f * f;
-}
-static void put(float x, float y, const float rgb[3]) {
-  if (ui_fade < 0.999f) {
-    /* fading: towards what is under it, still opaque */
-    float u[3], f = shape_fade();
-    under_at(x, y, u);
-    for (int i = 0; i < 3; i++)
-      u[i] += (rgb[i] - u[i]) * f;
-    room_vertex(x, y, u);
-  } else
-    room_vertex(x, y, rgb);
-}
-
-/* fill: the shape's colour, or (glass >= 0) what is under it lighter by
-   glass; line: an outline of a pixel at that colour and alpha (0: none).
-   Rings from the inside out: the fill a pixel (half a pixel without a
-   line) inside the edge, the line on the edge, what is under it a pixel
-   (half a pixel) outside: the GS's interpolation smooths the edge. */
-static void rrect(float x0, float y0, float x1, float y1, float r, u32 fill, float glass, u32 line) {
-  /* faded out: nothing (drawn in the room's colour it would cover what
-     is over the room there, a tile) */
-  if (ui_fade < 0.999f && shape_fade() < 0.004f)
-    return;
-  x0 = snapx(x0), x1 = snapx(x1), y0 = snapy(y0), y1 = snapy(y1);
-  if (r > (y1 - y0) * 0.5f)
-    r = (y1 - y0) * 0.5f;
-  if (r > (x1 - x0) * 0.5f)
-    r = (x1 - x0) * 0.5f;
-  float px[OUTLINE], py[OUTLINE], nx[OUTLINE], ny[OUTLINE];
-  int n = outline(x0, y0, x1, y1, r, px, py, nx, ny);
-  float la = (float)(line >> 24) / 255.0f;
-  float lrgb[3] = {(float)(line >> 16 & 255), (float)(line >> 8 & 255), (float)(line & 255)};
-  float d = la > 0 ? 1.0f : 0.5f, ex = d / px_x, ey = d / px_y;
-  static float fin[OUTLINE][5], fout[OUTLINE][5], fmid[OUTLINE][5]; /* x, y, rgb */
-  for (int k = 0; k < n; k++) {
-    float xi = px[k] - nx[k] * ex, yi = py[k] - ny[k] * ey, xo = px[k] + nx[k] * ex, yo = py[k] + ny[k] * ey;
-    fin[k][0] = xi, fin[k][1] = yi, fout[k][0] = xo, fout[k][1] = yo, fmid[k][0] = px[k], fmid[k][1] = py[k];
-    if (glass >= 0) {
-      under_at(xi, yi, fin[k] + 2);
-      fin[k][2] += glass, fin[k][3] += glass, fin[k][4] += glass;
-    } else
-      fin[k][2] = (float)(fill >> 16 & 255), fin[k][3] = (float)(fill >> 8 & 255), fin[k][4] = (float)(fill & 255);
-    under_at(xo, yo, fout[k] + 2);
-    for (int j = 0; j < 3; j++)
-      fmid[k][2 + j] = fin[k][2 + j] + (lrgb[j] - fin[k][2 + j]) * la;
-  }
-  glDisable(GL_BLEND);
-  float c[3], cxm = (x0 + x1) * 0.5f, cym = (y0 + y1) * 0.5f;
-  if (glass >= 0) {
-    under_at(cxm, cym, c);
-    c[0] += glass, c[1] += glass, c[2] += glass;
-  } else
-    c[0] = (float)(fill >> 16 & 255), c[1] = (float)(fill >> 8 & 255), c[2] = (float)(fill & 255);
-  glBegin(GL_TRIANGLE_FAN);
-  put(cxm, cym, c);
-  for (int i = 0; i <= n; i++)
-    put(fin[i % n][0], fin[i % n][1], fin[i % n] + 2);
-  glEnd();
-  float(*from)[5] = fin;
-  if (la > 0) {
-    glBegin(GL_TRIANGLE_STRIP);
-    for (int i = 0; i <= n; i++)
-      put(fin[i % n][0], fin[i % n][1], fin[i % n] + 2), put(fmid[i % n][0], fmid[i % n][1], fmid[i % n] + 2);
-    glEnd();
-    from = fmid;
-  }
-  glBegin(GL_TRIANGLE_STRIP);
-  for (int i = 0; i <= n; i++)
-    put(from[i % n][0], from[i % n][1], from[i % n] + 2), put(fout[i % n][0], fout[i % n][1], fout[i % n] + 2);
-  glEnd();
-  glEnable(GL_BLEND);
-}
-
-void d_pill(float x0, float y0, float x1, float y1, u32 c) { rrect(x0, y0, x1, y1, (y1 - y0) * 0.5f, c, -1, 0); }
-void d_pill_glass(float x0, float y0, float x1, float y1, float lighter, u32 line) {
-  rrect(x0, y0, x1, y1, (y1 - y0) * 0.5f, 0, lighter, line);
-}
-void d_card(float x0, float y0, float x1, float y1, float r, u32 c) { rrect(x0, y0, x1, y1, r, c, -1, 0); }
-void d_ring(float cx, float cy, float r, u32 line) { rrect(cx - r, cy - r, cx + r, cy + r, r, 0, 0, line); }
 
 /* a button as in the mockups: a pill, a pad symbol and its label, both
    centred on the pill's middle by their x height */

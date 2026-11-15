@@ -242,8 +242,7 @@ void d_tile(const struct tile_look *t) {
         if (t->tex)
           for (int j = 0; j < 3; j++)
             rgb[j] *= 0.5f; /* a cover's edge: its average, roughly */
-        float up = nvs[k] < 0 ? nvs[k] * nvs[k] : 0;
-        float k_lamp = 0.6f * t->lit * up * up;
+        float k_lamp = lamp_edge(nvs[k], 0.6f * t->lit);
         for (int j = 0; j < 3; j++)
           edge[j] = rgb[j] + (lamp[j] - rgb[j]) * k_lamp;
         if (ring == 0) {
