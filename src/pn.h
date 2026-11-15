@@ -207,6 +207,8 @@ int toast_dismiss(void); /* an urgent one waiting for a button: 1 if taken */
 void notes_poll(void);   /* the kernel's new notifications as cards */
 int toast_action(void);  /* the lit card's action (MX_NOTIFY_ACTION_*), 0 none */
 void toast_done(void);   /* the lit card away */
+void notes_boot_done(void); /* the boot screen is over: the quiet start ends soon */
+void ram_step(void);     /* the swap file's card: there while MXOS has none */
 
 /* ---- the settings (settings_store.c): a copy of the kernel's store ---- */
 const char *cfg_get(const char *key, const char *def);

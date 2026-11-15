@@ -573,6 +573,9 @@ int main(int argc, char **argv) {
     }
     news();
     toast_step();
+    ram_step();
+    if (screen != SCR_BOOT)
+      notes_boot_done();
 
     if (walk && screen == SCR_HOME && ticks % 20 == 0) {
       /* there and back along the row: 8 steps one way, 8 the other */
@@ -631,7 +634,8 @@ int main(int argc, char **argv) {
       float k = 1 - (float)(ticks - back_at) / 24;
       d_rect(0, 0, SCR_W, SCR_H, argb(C_INK, k * k), argb(C_INK, k * k));
     }
-    toast_draw();
+    if (screen != SCR_BOOT)
+      toast_draw();
     mxgl_end_frame();
     mxgl_frame_done();
 
