@@ -57,8 +57,8 @@ What it does now (PLAN.md, phase A):
   until the kernel says they are over; triangle on one with an action opens its page (Storage,
   Controllers). The start is quiet: the devices, controllers and swap file that are there when
   the PS2 starts get no card (during the boot screen and 5 s after it), only what comes later.
-  While MXOS has no swap file in use a card stays, with the memory in use as a bar (amber
-  from 85 %), so the user sees memory run out; the kernel's own swap file cards ("in use",
+  While MXOS has no swap file in use a card with the memory in use as a bar (amber from 85 %)
+  comes for 4 s, and again each time one more MiB is in use, so the user sees memory run out; the kernel's own swap file cards ("in use",
   "no swap file") are not shown.
 - **Devices**: the kernel (version 26) loads the storage drivers and lists the devices
   (`<mx/dev.h>`); when one comes or goes the shelf is filled again.

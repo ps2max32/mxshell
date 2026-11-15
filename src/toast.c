@@ -11,8 +11,9 @@
    and swap file that are there when the PS2 starts is not shown (during
    the boot screen and BOOT_QUIET after it), only what comes later. The
    swap file's state is not a card of the kernel's but the shell's own
-   (ram_step): while there is no swap file a card stays, with the memory in
-   use, so the user sees it run out. */
+   (ram_step): while there is no swap file a card with the memory in use
+   comes for LIFE, and again each time the memory in use passed one more
+   MiB, so the user sees it run out. */
 #include <mx/debug.h>
 #include <mx/dev.h>
 #include <mx/notify.h>
@@ -37,8 +38,9 @@ struct note {
 };
 static struct note notes[HIST];
 static int nnotes;
-static struct note ram = {.kind = N_WARN, .urgent = 1, .action = MX_NOTIFY_ACTION_SWAP, .bar = -1};
+static struct note ram = {.kind = N_WARN, .action = MX_NOTIFY_ACTION_SWAP, .bar = -1};
 static int ram_on;
+static u32 ram_mib = ~0u; /* the MiB in use when the card came last (~0: not since) */
 static u32 quiet_until = ~0u; /* ticks: the start's news not shown before */
 
 static void copy(char *d, u32 n, const char *s) {
@@ -117,8 +119,9 @@ void notes_boot_done(void) {
     quiet_until = ticks + BOOT_QUIET;
 }
 
-/* the swap file's card: there while MXOS has none in use, with the memory
-   in use (the kernel's VM: every program's) */
+/* the swap file's card while MXOS has none in use, with the memory in use
+   (the kernel's VM: every program's): when it starts to be so, and each
+   MiB more after that (less: counted from there) */
 void ram_step(void) {
   if (ticks % 30 == 0) {
     struct mx_swap_info si;
@@ -134,13 +137,22 @@ void ram_step(void) {
       pdev_bytes(a, sizeof a, (u64)used * MX_VM_PAGE);
       pdev_bytes(b, sizeof b, (u64)vs.frames * MX_VM_PAGE);
       ram.bar = (float)used / (float)vs.frames;
+      u32 mib = (u32)(((u64)used * MX_VM_PAGE) >> 20);
+      if (quiet_until == ~0u) /* the boot screen: from its end */
+        ;
+      else if (ram_mib == ~0u || mib > ram_mib)
+        ram.born = ticks, ram_mib = mib, mx_printf("mxshell: memory card at %u, %u MiB in use\n", ticks, mib);
+      else if (mib < ram_mib)
+        ram_mib = mib;
       copy(ram.title, sizeof ram.title,
            si.state == MX_SWAP_WAITING ? "Swap file not there"
            : si.state == MX_SWAP_FAILED ? "Swap file failed" : "No swap file");
       mx_snprintf(ram.text, sizeof ram.text, "%s of %s memory in use. Programs end when it runs out.", a, b);
-    }
+    } else
+      ram_mib = ~0u;
   }
-  spring_step(&ram.in, ram_on && quiet_until != ~0u ? 1.0f : 0.0f, W_LAYER, frame_dt);
+  int show = ram_on && ram_mib != ~0u && ticks - ram.born < LIFE;
+  spring_step(&ram.in, show ? 1.0f : 0.0f, W_LAYER, frame_dt);
 }
 
 /* the lit card: the newest note there, else the swap file's */
@@ -148,7 +160,7 @@ static struct note *lit(void) {
   for (int i = nnotes - 1; i >= 0; i--)
     if (!notes[i].gone && notes[i].in.x > 0.5f)
       return &notes[i];
-  return ram_on && ram.in.x > 0.5f ? &ram : 0;
+  return ram.in.x > 0.5f ? &ram : 0;
 }
 
 /* the action of the lit card (MX_NOTIFY_ACTION_*), 0 none */
@@ -175,10 +187,12 @@ int toast_dismiss(void) {
   return 0;
 }
 
-/* the lit card taken away (its action was chosen); the swap file's stays */
+/* the lit card taken away (its action was chosen) */
 void toast_done(void) {
   struct note *n = lit();
-  if (n && n != &ram)
+  if (n == &ram)
+    ram.born = ticks - LIFE;
+  else if (n)
     n->gone = 1;
 }
 
