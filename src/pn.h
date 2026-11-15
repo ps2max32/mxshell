@@ -208,9 +208,11 @@ void notes_poll(void);   /* the kernel's new notifications as cards */
 int toast_action(void);  /* the lit card's action (MX_NOTIFY_ACTION_*), 0 none */
 void toast_done(void);   /* the lit card away */
 
-/* ---- the settings (settings.c): mc0:/MXOS/MXSHELL2.CF0 and .CF1 until the kernel has a store ---- */
+/* ---- the settings (settings_store.c): a copy of the kernel's store ---- */
 const char *cfg_get(const char *key, const char *def);
-void cfg_set(const char *key, const char *value);
+void cfg_set(const char *key, const char *value); /* saved by cfg_save */
+void cfg_arg(const char *key, const char *value); /* this run only */
+void cfg_refresh(void);                           /* the store's changes */
 void cfg_load(void);
 void cfg_save(void);
 

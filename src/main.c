@@ -39,6 +39,7 @@
 #include <mx/sif.h>
 #include <mx/thread.h>
 #include <stdlib.h>
+#include <mx/setting.h>
 #include <string.h>
 
 #include "mxgl.h"
@@ -161,7 +162,7 @@ static int ev_port, ev_sema;
 static volatile struct {
   int proc, home, status;
 } ev_kept[EV_KEEP];
-static volatile int ev_devices, ev_notes; /* hints */
+static volatile int ev_devices, ev_notes, ev_settings; /* hints */
 static int run_id;          /* the paused game's process */
 int run_game = -1;
 static char run_name[48], run_dir[32], run_root[12];
@@ -186,6 +187,8 @@ static void ev_thread(void *arg) {
       ev_devices = 1;
     else if (e.type == MX_EVENT_NOTIFY)
       ev_notes = 1;
+    else if (e.type == MX_EVENT_SETTING)
+      ev_settings = 1;
     else if (e.type == MX_EVENT_HOME || e.type == MX_EVENT_END) {
       int k = 0;
       while (k < EV_KEEP - 1 && ev_kept[k].proc)
@@ -324,7 +327,7 @@ static void game_ended(const char *name, int st) {
 }
 
 /* the kernel's news while the shell is in front: the devices (the games
-   on them again) and the notifications; after a game too (the flags, or a
+   on them again), the notifications and the settings; after a game too (the flags, or a
    counter that moved meanwhile) */
 static u32 dev_seen;
 static void news(void) {
@@ -337,6 +340,10 @@ static void news(void) {
   if (ev_notes || ticks % 30 == 0) {
     ev_notes = 0;
     notes_poll();
+  }
+  if (ev_settings) { /* the kernel's own changes (swap.path, ...) */
+    ev_settings = 0;
+    cfg_refresh();
   }
 }
 
@@ -417,7 +424,7 @@ int main(int argc, char **argv) {
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i];
     if (!strcmp(a, "dev=host"))
-      cfg_set("dev.host", "1");
+      cfg_arg("dev.host", "1");
     else if (!strncmp(a, "shot=", 5))
       for (const char *s = a + 5; *s >= '0' && *s <= '9'; s++)
         shot = shot * 10 + *s - '0';
@@ -429,11 +436,11 @@ int main(int argc, char **argv) {
         home_sec = SEC_APPS, start = SCR_SETTINGS;
     }
     else if (!strncmp(a, "mode=", 5))
-      cfg_set("video.mode", a + 5);
+      cfg_arg("video.mode", a + 5);
     else if (!strncmp(a, "aspect=", 7))
-      cfg_set("video.aspect", a + 7);
+      cfg_arg("video.aspect", a + 7);
     else if (!strncmp(a, "deflicker=", 10))
-      cfg_set("video.deflicker", a + 10);
+      cfg_arg("video.deflicker", a + 10);
     else if (!strncmp(a, "switch=", 7))
       switch_to = a + 7;
     else if (!strncmp(a, "every=", 6))
@@ -455,9 +462,9 @@ int main(int argc, char **argv) {
     else if (!strncmp(a, "end=", 4))
       end = atoi(a + 4);
     else if (!strcmp(a, "nobeam"))
-      cfg_set("video.beam", "0");
+      cfg_arg("video.beam", "0");
     else if (!strcmp(a, "rgb16"))
-      cfg_set("video.depth", "16");
+      cfg_arg("video.depth", "16");
     else if (!strcmp(a, "hometest"))
       home_test = 1;
     else if (!strcmp(a, "launch"))
@@ -465,7 +472,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(a, "note"))
       note = 1;
     else if (!strcmp(a, "dev=hostonly"))
-      cfg_set("dev.host", "1"), host_only = 1;
+      cfg_arg("dev.host", "1"), host_only = 1;
     else if (!strncmp(a, "hubk=", 5)) {
       extern float hub_pin;
       hub_pin = (float)atoi(a + 5) / 100;
@@ -476,9 +483,22 @@ int main(int argc, char **argv) {
     else if (!strcmp(a, "screen=dither"))
       start = SCR_DITHER;
     else if (!strncmp(a, "dither=", 7))
-      cfg_set("video.dither", a + 7);
+      cfg_arg("video.dither", a + 7);
     else if (!strcmp(a, "screen=home"))
       start = SCR_HOME;
+    else if (!strncmp(a, "set=", 4)) { /* set=<key>=<value>: saved, as Settings does */
+      char k[MX_SETTING_KEY];
+      const char *eq = strchr(a + 4, '=');
+      u32 n = eq ? (u32)(eq - a - 4) : 0;
+      if (eq && n < sizeof k) {
+        memcpy(k, a + 4, n), k[n] = 0;
+        cfg_set(k, eq + 1);
+        cfg_save();
+      }
+    } else if (!strncmp(a, "show=", 5)) { /* the store's value, read again */
+      cfg_load();
+      mx_printf("mxshell: setting %s = '%s'\n", a + 5, cfg_get(a + 5, "(not set)"));
+    }
   }
 
   mxgl_init();
@@ -624,7 +644,7 @@ int main(int argc, char **argv) {
       if (*switch_to == ',')
         switch_to++;
       mx_printf("mxshell: switch to %s\n", m);
-      cfg_set("video.mode", m);
+      cfg_arg("video.mode", m);
       video_apply();
     }
     if (screen == SCR_LAUNCH && (float)(ticks - screen_at) * frame_dt > LAUNCH_T)

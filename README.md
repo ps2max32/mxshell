@@ -63,9 +63,9 @@ What it does now (PLAN.md, phase A):
 The games are where mxshell finds them, `<device>/PS2MAX/<game>/game.ini`
 (`apps/mxshell/package-games.sh` makes them): on the devices the kernel lists but the memory
 cards (USB `usb0:`, the internal HDD `ata0:`), and `host:` when Settings > Storage turns it on.
-The shell needs kernel version 26. The shell's own settings are in
-`mc0:/MXOS/MXSHELL2.CF0` and `.CF1` (two files written in turn, so a save cut short loses
-nothing) until the kernel has a settings store.
+The shell needs kernel version 27. Its settings (`video.*`, `dev.host`) are in the kernel's
+settings store (`<mx/setting.h>`), which the kernel writes to the memory card; the shell's test
+arguments (`mode=`, `rgb16`, ...) only change them for that run.
 
 ## Build
 

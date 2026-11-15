@@ -1500,7 +1500,7 @@ int main(int argc, char **argv) {
     else if (!strncmp(a, "keys=", 5))
       okeys = a + 5;
     else if (!strncmp(a, "mode=", 5))
-      cfg_set("video.mode", a + 5);
+      cfg_arg("video.mode", a + 5);
     else if (!strncmp(a, "kind=", 5))
       for (int k = 0; k < NKINDS; k++)
         if (!strcmp(a + 5, kind_key[k]))

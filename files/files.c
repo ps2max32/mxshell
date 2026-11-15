@@ -1160,7 +1160,7 @@ int main(int argc, char **argv) {
     else if (!strncmp(a, "run=", 4))
       orun = a + 4;
     else if (!strncmp(a, "mode=", 5))
-      cfg_set("video.mode", a + 5);
+      cfg_arg("video.mode", a + 5);
   }
   ents = malloc(MAXE * sizeof *ents);
   buf = malloc(BUF);

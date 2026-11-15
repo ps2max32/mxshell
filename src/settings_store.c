@@ -1,108 +1,100 @@
-/* MXSHELL2: its settings, key=value lines on the memory card, until the
-   kernel has a settings store (PLAN.md, O1). Written safely without a
-   rename (mxio has none): two files, mc0:/MXOS/MXSHELL2.CF0 and .CF1, each
-   with a sequence number and an end line; a save writes the older one, a
-   load takes the newer complete one. */
+/* MXSHELL2: its settings, kept in the kernel's store (<mx/setting.h>,
+   kernel version 27), which writes them to the memory card itself. The
+   shell holds a copy: cfg_set changes the copy, cfg_save hands the changed
+   keys to the kernel (a video mode being tried is not saved until it is
+   confirmed), and cfg_arg sets a key for this run only (test arguments,
+   never saved). The apps (Files, Media) read the store too; only the shell
+   may change it. */
 #include <mx/debug.h>
-#include <mx/sif.h>
+#include <mx/setting.h>
 #include <string.h>
 
 #include "pn.h"
 
-#define MAX_KEYS 32
+#define MAX_KEYS 48
+#define DIRTY 1 /* changed here, not yet in the store */
+#define TEMP 2  /* for this run only */
 
 static struct {
-  char key[24], value[40];
+  char key[MX_SETTING_KEY], value[MX_SETTING_VALUE];
+  u8 flags;
 } kv[MAX_KEYS];
 static int nkv;
-static u32 seq;     /* of the file loaded */
-static int last;    /* which file that was */
+static u32 seen;    /* the store's counter at the last read */
 
-static const char *file(int i) { return i ? "mc0:/MXOS/MXSHELL2.CF1" : "mc0:/MXOS/MXSHELL2.CF0"; }
-
-const char *cfg_get(const char *key, const char *def) {
+static int find(const char *key) {
   for (int i = 0; i < nkv; i++)
     if (!strcmp(kv[i].key, key))
-      return kv[i].value;
-  return def;
+      return i;
+  return -1;
 }
 
-static void put(const char *key, u32 klen, const char *value, u32 vlen) {
-  int i = 0;
-  for (; i < nkv; i++)
-    if (strlen(kv[i].key) == klen && !strncmp(kv[i].key, key, klen))
-      break;
-  if (i == nkv) {
+static void copy(char *d, u32 n, const char *s) {
+  u32 i = 0;
+  for (; s[i] && i + 1 < n; i++)
+    d[i] = s[i];
+  d[i] = 0;
+}
+
+static int put(const char *key, const char *value) {
+  int i = find(key);
+  if (i < 0) {
     if (nkv == MAX_KEYS)
-      return;
-    nkv++;
+      return -1;
+    i = nkv++;
+    copy(kv[i].key, sizeof kv[i].key, key);
   }
-  klen = klen < sizeof kv[i].key - 1 ? klen : sizeof kv[i].key - 1;
-  vlen = vlen < sizeof kv[i].value - 1 ? vlen : sizeof kv[i].value - 1;
-  memcpy(kv[i].key, key, klen), kv[i].key[klen] = 0;
-  memcpy(kv[i].value, value, vlen), kv[i].value[vlen] = 0;
+  copy(kv[i].value, sizeof kv[i].value, value ? value : "");
+  return i;
 }
 
-void cfg_set(const char *key, const char *value) { put(key, strlen(key), value, strlen(value)); }
-
-static char buf[2048];
-
-/* the file's sequence number if it is complete, else 0 (contents in buf) */
-static u32 read_file(int i) {
-  int fd = mx_fio_open(file(i), MX_FIO_RDONLY);
-  if (fd < 0)
-    return 0;
-  int n = mx_fio_read(fd, buf, sizeof buf - 1);
-  mx_fio_close(fd);
-  if (n < 16 || strncmp(buf, "mxshell2 ", 9) || strncmp(buf + n - 4, "end\n", 4))
-    return 0;
-  buf[n] = 0;
-  u32 s = 0;
-  for (const char *p = buf + 9; *p >= '0' && *p <= '9'; p++)
-    s = s * 10 + (u32)(*p - '0');
-  return s;
+const char *cfg_get(const char *key, const char *def) {
+  int i = find(key);
+  return i >= 0 && kv[i].value[0] ? kv[i].value : def;
 }
 
-static void parse(void) {
-  char *s = buf;
-  while (*s && *s != '\n')
-    s++;
-  while (*s == '\n')
-    s++;
-  while (*s) {
-    char *e = s, *eq = 0;
-    while (*e && *e != '\n') {
-      if (*e == '=' && !eq)
-        eq = e;
-      e++;
+void cfg_set(const char *key, const char *value) {
+  int i = put(key, value);
+  if (i >= 0)
+    kv[i].flags = DIRTY;
+}
+
+void cfg_arg(const char *key, const char *value) {
+  int i = put(key, value);
+  if (i >= 0)
+    kv[i].flags = TEMP;
+}
+
+/* the store's changes since the last read, but over keys changed here */
+void cfg_refresh(void) {
+  static struct mx_setting s[16];
+  u32 now = mx_setting_seq();
+  while (seen != now) {
+    int n = mx_setting_list(seen, s, 16);
+    if (n <= 0)
+      break;
+    u32 top = seen;
+    for (int k = 0; k < n; k++) {
+      int i = find(s[k].key);
+      if (!(i >= 0 && kv[i].flags))
+        put(s[k].key, s[k].value);
+      if (s[k].seq > top)
+        top = s[k].seq;
     }
-    if (eq)
-      put(s, (u32)(eq - s), eq + 1, (u32)(e - eq - 1));
-    s = *e ? e + 1 : e;
+    seen = n < 16 || top == seen ? now : top;
   }
 }
 
 void cfg_load(void) {
-  nkv = 0;
-  u32 s0 = read_file(0), s1 = read_file(1);
-  last = s1 > s0;
-  seq = last ? s1 : s0;
-  if (seq && read_file(last) == seq)
-    parse();
+  nkv = 0, seen = 0;
+  cfg_refresh();
 }
 
 void cfg_save(void) {
-  char *e = buf;
-  e += mx_snprintf(e, 32, "mxshell2 %u\n", seq + 1);
-  for (int i = 0; i < nkv && e < buf + sizeof buf - 80; i++)
-    e += mx_snprintf(e, 80, "%s=%s\n", kv[i].key, kv[i].value);
-  e += mx_snprintf(e, 8, "end\n");
-  int to = !last;
-  int fd = mx_fio_open(file(to), MX_FIO_WRONLY | MX_FIO_CREAT | MX_FIO_TRUNC);
-  if (fd < 0)
-    return;
-  int ok = mx_fio_write(fd, buf, (u32)(e - buf)) == (int)(e - buf);
-  mx_fio_close(fd);
-  if (ok)
-    seq++, last = to;
+  for (int i = 0; i < nkv; i++)
+    if (kv[i].flags & DIRTY) {
+      if (mx_setting_set(kv[i].key, kv[i].value) < 0)
+        mx_printf("mxshell: setting %s not saved\n", kv[i].key);
+      kv[i].flags = 0;
+    }
 }

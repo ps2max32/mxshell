@@ -184,7 +184,7 @@ Nothing is kept for older kernels. Device hotplug needs the PS2 (PCSX2's IOP has
 
 | Step | What | Needs |
 |---|---|---|
-| B1 | Settings store: `MXSHELL2.CFG` moves into the kernel's | O1 |
+| B1 | Settings store: `MXSHELL2.CFG` moves into the kernel's (done 2026-11-15, kernel 27: the shell keeps a copy and saves a changed key, a tried video mode only once confirmed; test arguments are never saved) | O1 |
 | B2 | Controllers in full: kind, battery, charging, light colour, turn off, forget, pair | O4 |
 | B3 | Network status and settings at run time; Date and time; Storage events | O5, O6, O7 |
 | B4 | Notifications from the kernel's ring (pads, devices, network, other programs) | O2, O3 |
