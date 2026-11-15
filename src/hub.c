@@ -173,7 +173,7 @@ void hub_input(void) {
     leaving = 1;
   if (pad_pressed & MX_PAD_CROSS)
     screen = SCR_LAUNCH, hub_game = -1;
-  else if (pad_pressed & MX_PAD_SQUARE && hub_game == run_game) {
+  else if (pad_pressed & MX_PAD_SQUARE && hub_game >= 0 && hub_game == run_game) {
     char m[48];
     strncpy(m, games[hub_game].title, sizeof m - 1), m[sizeof m - 1] = 0;
     game_close();

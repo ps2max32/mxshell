@@ -16,26 +16,27 @@ What it does now (PLAN.md, phase A):
   place, its saves where `game.ini` names them (`saves=<directory>`).
 - **Starting a game** (cross): the lit tile goes to the middle as a poster, the rest goes dark,
   a line under it fills, then black; the shell gives back its covers and beam racing's memory.
-  With a kernel of version 25 the game starts beside the shell (`mx_proc_spawn`), which waits
-  for the kernel's events: the home button in the game pauses it and brings the shell in front
-  with the game's hub (Paused: cross Resume, square Close, the home button back to it); starting
-  another game closes the paused one first. With an older kernel the game starts in the
-  shell's place (`mx_loader_launch`). Back from the game the shelf comes out of the dark; a
-  game that crashed or ended with a status other than 0 leaves a notification.
+  The game starts beside the shell (`mx_proc_spawn`), which waits for the kernel's events: the
+  home button in the game pauses it and brings the shell in front with the game's hub (Paused:
+  cross Resume, square Close, the home button back to it); starting another game closes the
+  paused one first. Back from the game the shelf comes out of the dark; a game that ended with
+  a status other than 0 leaves a notification (a crash is the kernel's).
 - **Settings** (the last section, its own screen: the pages in a list, L1 back to Apps): Video (a family of modes, 1080, 720p, 480p/576p or NTSC/PAL, and under it the frame rate or
   standard, colour, dithering, television and flicker filter where they apply; without a setting
   the console's own mode, PAL or NTSC; a new mode
   stays only when kept within 15 s, and Start + Select held at power-on goes back to the
   console's own SD mode), Network (`mc0:/MXOS/IPCONFIG.DAT`, used from the kernel's next start),
-  Storage (where it looks for games), Controllers (which ports have a pad; the motors tried),
+  Storage (the kernel's devices with size, free space where known, games and the swap file;
+  cross on one: ready to remove; where MXOS's swap file is, or none; games from the PC),
+  Controllers (which ports have a pad; the motors tried),
   System (the shell, the kernel's version, `SERVICES.CFG`).
 - **Files** (`files/`, an app in Apps: `make files` makes `PS2MAX/files/` with `FILES.ELF` and its
-  `game.ini`, for a device's `PS2MAX/`): the memory cards, the USB drive, the HDD and the host;
+  `game.ini`, for a device's `PS2MAX/`): the devices the kernel lists and the PC (host:);
   select (square), and from the actions (triangle) copy, cut, paste, rename, delete, a new folder,
   select all; names from an on-screen keyboard; long jobs with their progress, circle stops
   them. Until mxio can say what a directory entry is, rename and give free space, a folder is
   what opens as one, rename and move are a copy and a delete, and no free space is shown.
-  Cross on an ELF starts it (Files waits; a kernel of version 24). `make files-shot RUNNER=... FILES_ARGS="dev=4 path=PS2MAX ops"` runs every
+  Cross on an ELF starts it (Files waits). `make files-shot RUNNER=... FILES_ARGS="dev=host path=PS2MAX ops"` runs every
   action once in PCSX2.
 - **Media** (`media/`, three tiles in Media, Photos, Videos and Music, each starting
   `PS2MAX/media/PLAYER.ELF` with its kind; `make media`): a device's `Media/<kind>` folder
@@ -48,15 +49,21 @@ What it does now (PLAN.md, phase A):
   next track after it, START shows Now playing (cross pause, L1/R1 previous and next, square
   stop). It ends with Media: until the OS can keep a program beside the shell and games.
   `tools/media-samples.sh build/pcsx2-test` downloads samples (Wikimedia Commons, Big Buck
-  Bunny) and `make media-shot RUNNER=... MEDIA_ARGS="kind=video dev=4 sel=1 open keys=rx"`
+  Bunny) and `make media-shot RUNNER=... MEDIA_ARGS="kind=video dev=host path=Media/Videos sel=1 open keys=rx"`
   plays one in PCSX2 (`keys=`: buttons a second apart).
-- **Notifications**: cards top right; a pad that comes or goes, a device found, a game that
-  ended badly. Urgent ones stay until a button.
+- **Notifications**: cards top right, from the kernel's ring (`<mx/notify.h>`: devices that come
+  and go, the swap file, controllers, crashes, other programs) and the shell's own; the ones
+  that came during a game when the shell is in front again. Urgent ones stay until a button or
+  until the kernel says they are over; triangle on one with an action opens its page (Storage,
+  Controllers).
+- **Devices**: the kernel (version 26) loads the storage drivers and lists the devices
+  (`<mx/dev.h>`); when one comes or goes the shelf is filled again.
 - **Power-on**: a point of light, a horizon, the mark, then the shelf.
 
 The games are where mxshell finds them, `<device>/PS2MAX/<game>/game.ini`
-(`apps/mxshell/package-games.sh` makes them): on USB (`usb0:`) and the internal HDD
-(`ata0:`), and `host:` when Settings > Storage turns it on. The shell's own settings are in
+(`apps/mxshell/package-games.sh` makes them): on the devices the kernel lists but the memory
+cards (USB `usb0:`, the internal HDD `ata0:`), and `host:` when Settings > Storage turns it on.
+The shell needs kernel version 26. The shell's own settings are in
 `mc0:/MXOS/MXSHELL2.CF0` and `.CF1` (two files written in turn, so a save cut short loses
 nothing) until the kernel has a settings store.
 
@@ -68,7 +75,7 @@ variable, and libgl and itself the same, so the linker leaves out what is not us
 misses frames while the focus moves.
 
 ```
-make              # build/apps/mxshell/MXOS/MXSHELL.ELF: an MXOS program (libmxk), and the storage drivers it loads
+make              # build/apps/mxshell/MXOS/MXSHELL.ELF: an MXOS program (libmxk)
 make standalone   # build/apps/mxshell-sa/mxshell.elf: libmx, for pictures on PCSX2
 make shot         # that ELF on PCSX2 (RUNNER=...) with build/pcsx2-test/PS2MAX: host:mxshell.tga
                   # (ARGS="screen=hub", "screen=settings", "note", "right=<n>", "rgb16")

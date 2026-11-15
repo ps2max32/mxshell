@@ -1,6 +1,7 @@
-/* MXSHELL2: the shell of mx OS (PLAN.md). The kernel starts it; it shows the
-   games on the devices, starts one with mx_loader_launch and waits for it,
-   and comes back when it ends.
+/* MXSHELL2: the shell of mx OS (PLAN.md), kernel version 26. The kernel
+   starts it; it shows the games on the devices the kernel lists, starts one
+   beside it (mx_proc_spawn) and is in front again when the game ends or the
+   home button pauses it; the kernel's notifications as cards.
 
    Arguments, for pictures and tests from the host:
      dev=host        look for games on host: too (ps2client's directory)
@@ -13,6 +14,7 @@
      deflicker=on|off the flicker filter in NTSC and PAL
      hubk=<percent>  (tests) with screen=hub: the way in held there
      pick=<n>        (tests) with screen=settings: row n of the first page chosen
+     page=<n>        (tests) Settings' page n open (2 Storage)
      room=vu         (tests) the room's lights on VU1 (room.vsm), not the EE
      stats           (tests) libgl's counters
      end=<frames>    (tests) the end marker after that many frames
@@ -25,6 +27,8 @@
 #include <mx/debug.h>
 #include <mx/frame.h>
 #include <mx/loader.h>
+#include <mx/dev.h>
+#include <mx/notify.h>
 #include <mx/mx.h>
 #include <mx/vm.h>
 #include <mx/mem.h>
@@ -45,7 +49,7 @@ MX_CORE_HEAP(512 << 10);
 
 int screen = SCR_BOOT;
 u32 pad_pressed, pad_held;
-static int pad_on, pads_seen[2], input_wait;
+static int pad_on, input_wait;
 static u32 screen_at, back_at;
 
 void status_draw(void) {
@@ -141,40 +145,73 @@ static void launch_draw(void) {
     d_rect(0, 0, SCR_W, SCR_H, argb(C_INK, b), argb(C_INK, b));
 }
 
-/* The home button (kernel version 25): the shell starts a game beside it
-   (mx_proc_spawn) and waits for the kernel's event: its end, or the home
-   button pressed in it, which pauses it and brings the shell in front. The
-   shell then shows the game's hub: Resume (mx_proc_front) or Close
-   (mx_proc_kill). With an older kernel a game starts in the shell's place
-   (mx_loader_launch) and the shell is back at its end. */
-static int ev_port;         /* the kernel's events, 0: an older kernel */
+/* The home button: the shell starts a game beside it (mx_proc_spawn) and
+   waits for the kernel's event: its end, or the home button pressed in it,
+   which pauses it and brings the shell in front. The shell then shows the
+   game's hub: Resume (mx_proc_front) or Close (mx_proc_kill).
+   The kernel's events come to a port that a thread of the shell's own
+   always receives on, in front or not: the kernel's message slots are few
+   and shared, and the hints (a device, a notification, a controller) must
+   not keep them. The hints only set flags; the main loop reads the state
+   (the device list, the notification ring) when they are set. */
+static int ev_port, ev_sema;
+/* a game's end or home press, kept until game_wait takes it: it may come
+   before the shell waits (a game closed ends at once) */
+#define EV_KEEP 8
+static volatile struct {
+  int proc, home, status;
+} ev_kept[EV_KEEP];
+static volatile int ev_devices, ev_notes; /* hints */
 static int run_id;          /* the paused game's process */
 int run_game = -1;
-static char run_name[48];
+static char run_name[48], run_dir[32], run_root[12];
 #define AT_HOME (-1000)     /* game_wait: the home button, not an end */
 /* tests: hometest, the home button's way through (fakegame "0 home=<n>"
    presses it): the hub's picture, Resume, at the second press Close */
 static int home_test, home_count;
 static u32 home_at;
 
-/* the game in front until it ends or the home button pauses it: its exit
-   status, or AT_HOME */
-static int game_wait(int id) {
+static u8 ev_stack[8192] MX_ALIGNED(16) MX_CORE_BSS;
+static void ev_thread(void *arg) {
+  (void)arg;
   for (;;) {
     struct mx_event e;
     struct mx_msg m;
     memset(&e, 0, sizeof e);
     if (mx_msg_receive(ev_port, &e, sizeof e, &m) < 0)
-      return -1;
-    if (m.from != 0 || e.proc != id)
+      return;
+    if (m.from != 0)
       continue;
-    if (e.type == MX_EVENT_HOME)
-      return AT_HOME;
-    if (e.type == MX_EVENT_END) {
-      int st;
-      mx_proc_wait(id, &st, 1);
-      return e.status;
+    if (e.type == MX_EVENT_DEVICE)
+      ev_devices = 1;
+    else if (e.type == MX_EVENT_NOTIFY)
+      ev_notes = 1;
+    else if (e.type == MX_EVENT_HOME || e.type == MX_EVENT_END) {
+      int k = 0;
+      while (k < EV_KEEP - 1 && ev_kept[k].proc)
+        k++;
+      ev_kept[k].home = e.type == MX_EVENT_HOME, ev_kept[k].status = e.status;
+      ev_kept[k].proc = (int)e.proc;
+      mx_sema_signal(ev_sema);
     }
+  }
+}
+
+/* the game in front until it ends or the home button pauses it: its exit
+   status, or AT_HOME */
+static int game_wait(int id) {
+  for (;;) {
+    for (int k = 0; k < EV_KEEP; k++)
+      if (ev_kept[k].proc == id) {
+        int home = ev_kept[k].home, status = ev_kept[k].status;
+        ev_kept[k].proc = 0;
+        if (home)
+          return AT_HOME;
+        int st;
+        mx_proc_wait(id, &st, 1);
+        return status;
+      }
+    mx_sema_wait(ev_sema);
   }
 }
 
@@ -262,6 +299,7 @@ static void launch(void) {
     toast(N_INFO, "Closed", m, 0);
   }
   strncpy(run_name, games[g].title, sizeof run_name - 1), run_name[sizeof run_name - 1] = 0;
+  strcpy(run_dir, games[g].dir), strcpy(run_root, game_root(g));
   shell_away();
   /* what stays of the shell beside the game: its pinned frames (the
      kernel's are counted too) */
@@ -269,42 +307,46 @@ static void launch(void) {
   mx_mem_pressure(&mp);
   mx_printf("mxshell: launch %s: %u KB pinned, %u KB free\n", run_name, mp.pinned_frames * (MX_VM_PAGE / 1024),
             mp.free_frames * (MX_VM_PAGE / 1024));
-  if (ev_port) {
-    int id = game_launch(g, 1);
-    game_away(id, g, id > 0 ? game_wait(id) : -1);
-    return;
-  }
-  int st = game_launch(g, 0);
-  shell_back();
-  screen = SCR_HOME;
-  game_ended(run_name, st);
+  int id = game_launch(g);
+  game_away(id, g, id > 0 ? game_wait(id) : -1);
 }
 
+/* a crash is the kernel's notification */
 static void game_ended(const char *name, int st) {
   struct mx_crash crash;
   if (st < 0)
     toast(N_WARN, "Could not start", name, 1);
-  else if (mx_crash_last(&crash)) {
-    char m[48];
-    mx_snprintf(m, sizeof m, "%s at %08x", crash.what ? crash.what : "Crashed", crash.epc);
-    toast(N_WARN, name, m, 1);
-  } else if (st != 0) {
+  else if (!mx_crash_last(&crash) && st != 0) {
     char m[40];
     mx_snprintf(m, sizeof m, "Ended with status %d", st);
     toast(N_WARN, name, m, 1);
   }
 }
 
-static void pads_watch(void) {
-  for (int p = 0; p < 2; p++) {
-    int on = pad_on && mx_pad_connected(p);
-    if (on != pads_seen[p] && ticks > 90) {
-      char m[24];
-      mx_snprintf(m, sizeof m, "Port %d", p + 1);
-      toast(N_PAD, on ? "Controller connected" : "Controller removed", m, 0);
-    }
-    pads_seen[p] = on;
+/* the kernel's news while the shell is in front: the devices (the games
+   on them again) and the notifications; after a game too (the flags, or a
+   counter that moved meanwhile) */
+static u32 dev_seen;
+static void news(void) {
+  if (ev_devices || pdevs_gen() != dev_seen) {
+    ev_devices = 0;
+    dev_seen = pdevs_gen();
+    if (!games_searching)
+      games_search();
   }
+  if (ev_notes || ticks % 30 == 0) {
+    ev_notes = 0;
+    notes_poll();
+  }
+}
+
+/* triangle on a card with an action: its page */
+static void note_action(void) {
+  int a = toast_action();
+  if (!a || screen == SCR_LAUNCH)
+    return;
+  toast_done();
+  settings_goto(a == MX_NOTIFY_ACTION_PADS ? P_PADS : P_STORAGE, a == MX_NOTIFY_ACTION_SWAP);
 }
 
 static void read_pad(void) {
@@ -319,6 +361,10 @@ static void read_pad(void) {
       pad_pressed = 0;
     else
       input_wait = 0;
+  }
+  if (pad_pressed & MX_PAD_TRIANGLE && toast_action()) {
+    note_action();
+    pad_pressed = 0;
   }
   if (pad_pressed && toast_dismiss())
     pad_pressed = 0;
@@ -354,14 +400,15 @@ static const char *switch_to;
 static u32 switch_every = 90;
 
 int main(int argc, char **argv) {
+  int page_arg = -1;
   int shot = 0, right = 0, note = 0, start = SCR_BOOT, go = 0, stats = 0, end = 0, walk = 0, pick = -1;
   cfg_load();
-  /* the kernel's events: a game's end and the home button */
-  if (mx__kernel && mx__kernel->version >= 25) {
-    ev_port = mx_port_create("mxshell");
-    if (ev_port > 0 && mx_proc_events(ev_port) != 0)
-      mx_port_delete(ev_port), ev_port = 0;
-    ev_port = ev_port > 0 ? ev_port : 0;
+  /* the kernel's events: a game's end, the home button, the hints (none
+     in the standalone build) */
+  ev_port = mx_port_create("mxshell");
+  if (ev_port > 0 && mx_proc_events(ev_port) == 0) {
+    ev_sema = mx_sema_create(0, 64);
+    mx_thread_start(ev_thread, 0, ev_stack, sizeof ev_stack, mx_thread_prio(mx_thread_self()) - 1);
   }
 #ifdef MX_BIOS_CALLS
   if (argc <= 1)
@@ -397,7 +444,9 @@ int main(int argc, char **argv) {
     } else if (!strcmp(a, "room=vu")) {
       extern int room_on_vu;
       room_on_vu = 1;
-    } else if (!strncmp(a, "pick=", 5))
+    } else if (!strncmp(a, "page=", 5))
+      page_arg = atoi(a + 5), start = SCR_SETTINGS;
+    else if (!strncmp(a, "pick=", 5))
       pick = atoi(a + 5);
     else if (!strcmp(a, "walk"))
       walk = 1;
@@ -416,7 +465,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(a, "note"))
       note = 1;
     else if (!strcmp(a, "dev=hostonly"))
-      cfg_set("dev.host", "1"), cfg_set("dev.usb", "0"), cfg_set("dev.hdd", "0");
+      cfg_set("dev.host", "1"), host_only = 1;
     else if (!strncmp(a, "hubk=", 5)) {
       extern float hub_pin;
       hub_pin = (float)atoi(a + 5) / 100;
@@ -450,6 +499,7 @@ int main(int argc, char **argv) {
   }
   video_apply();
   frame_dt = mxgl_mode() == MXGL_PAL ? 1.0f / 50 : 1.0f / 60;
+  dev_seen = pdevs_gen();
   games_search();
   if (note) {
     toast(N_DEVICE, "USB drive ready", "usb0" DOT "8 games", 0);
@@ -469,9 +519,9 @@ int main(int argc, char **argv) {
     if (games_searching && ticks % 15 == 0 && games_step()) {
       games_searching = 0;
       games_textures();
-      for (int d = 0; d < NDEVS; d++)
-        if (dev_found[d] && d != DEV_HOST && ticks > 150)
-          toast(N_DEVICE, d == DEV_USB ? "USB drive ready" : "Hard disk ready", dev_root[d], 0);
+      /* the paused game's tile again (or none: its device went) */
+      if (run_id)
+        run_game = games_find(run_root, run_dir);
       if (start != SCR_BOOT) {
         /* a picture of a screen: once the games are there */
         for (int i = 0; start != SCR_SETTINGS && i < right; i++) {
@@ -481,6 +531,8 @@ int main(int argc, char **argv) {
         home_enter();
         if (start == SCR_SETTINGS) {
           settings_enter();
+          if (page_arg >= 0)
+            settings_goto(page_arg, 0);
           if (pick >= 0) {
             void settings_pick(int n);
             settings_pick(pick);
@@ -499,7 +551,7 @@ int main(int argc, char **argv) {
           screen = SCR_LAUNCH;
       }
     }
-    pads_watch();
+    news();
     toast_step();
 
     if (walk && screen == SCR_HOME && ticks % 20 == 0) {

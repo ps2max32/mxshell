@@ -19,10 +19,7 @@ OUT      ?= $(PS2MAX)/build/apps/mxshell$(if $(filter standalone,$(MX_TARGET)),-
 PS2MAX_PS2DEV  ?= $(abspath $(PS2MAX)/../ps2dev/install)
 PS2MAX_IOP_SDK ?= $(PS2MAX_PS2DEV)/ps2sdk
 PS2MAX_IRX     ?= $(PS2MAX_IOP_SDK)/iop/irx
-# the storage drivers it loads from mc0:/MXOS, one device's at a time
-STORAGE_MODULES = bdm bdmfs_fatfs usbd usbmass_bd mx4sio_bd mxata
-
-all: $(OUT)/MXOS/MXSHELL.ELF $(STORAGE_MODULES:%=$(OUT)/MXOS/%.irx)
+all: $(OUT)/MXOS/MXSHELL.ELF
 
 # its own maxsdk, built with a section per function and variable (and
 # libgl and the shell the same), for the linker to leave out what is not
@@ -52,7 +49,7 @@ $(MAXSDK_OUT)/libc/glue.c.o $(MAXSDK_OUT)/libmxc.a $(MAXSDK_OUT)/librt.a &: $(MX
 SCFLAGS   = $(filter-out -ffreestanding,$(CFLAGS)) -MMD -nostdlibinc -isystem $(PICOLIBC)/include \
             -I$(MXGL_INC) -ffast-math -cl-single-precision-constant
 
-SRCS = main draw font tile games home hub settings settings_store toast dither video drivers
+SRCS = main draw font tile games home hub settings settings_store toast dither video devlist
 # zlib's inflate (libs/zlib), for the font atlases
 ZLIB   ?= $(PS2MAX)/libs/zlib
 ZSRCS   = inflate inftrees inffast zutil adler32 uncompr
@@ -77,23 +74,10 @@ $(OUT)/MXOS/MXSHELL.ELF: $(OUT)/mxshell.elf
 	@mkdir -p $(dir $@)
 	$(LLVM)/llvm-strip -o $@ $<
 
-# maxsdk's USB mass storage and HDD drivers, from one make of its iop/
-MAXSDK_IRX = $(PS2MAX)/build/libs/maxsdk/iop
-$(OUT)/MXOS/usbmass_bd.irx $(OUT)/MXOS/mxata.irx: maxsdk-iop
-	@mkdir -p $(dir $@)
-	cp $(MAXSDK_IRX)/$(notdir $@) $@
-maxsdk-iop:
-	$(MAKE) -C $(PS2MAX)/libs/maxsdk/iop EXTRA_CFLAGS= OUT=$(MAXSDK_IRX)
-# ps2sdk's prebuilt ones
-$(OUT)/MXOS/%.irx: $(PS2MAX_IRX)/%.irx
-	@mkdir -p $(dir $@)
-	cp $< $@
-.PHONY: maxsdk-iop
-
 -include $(OBJS:.o=.d)
 
 # usbcopy (tools/usbcopy.c): files to and from the USB stick from the PC,
-# through the host link; it loads the USB drivers itself
+# through the host link
 usbcopy: $(OUT)/usbcopy.elf
 $(OUT)/usbcopy.elf: $(HERE)/tools/usbcopy.c $(MX_LIB) $(MX_CRT0) $(MX_LD) $(LIBC_LIBS)
 	@mkdir -p $(OUT)/obj
@@ -114,7 +98,7 @@ standalone:
 # shell's drawing, font, video mode and notifications, a main loop of its
 # own. $(OUT)/PS2MAX/files: FILES.ELF and its game.ini, for
 # <device>/PS2MAX/files/
-FILES_SRCS = draw font dither video settings_store toast drivers
+FILES_SRCS = draw font dither video settings_store toast devlist
 FILES_OBJS = $(FILES_SRCS:%=$(OUT)/obj/%.o) $(OUT)/obj/font_bin.o $(ZSRCS:%=$(OUT)/obj/zlib/%.o) $(OUT)/obj/files.o
 $(OUT)/obj/files.o: $(HERE)/files/files.c
 	@mkdir -p $(dir $@)
@@ -147,7 +131,7 @@ media: $(OUT)/PS2MAX/media/PLAYER.ELF
 
 # Media on PCSX2 with the samples in build/pcsx2-test/Media
 # (tools/media-samples.sh makes them): a picture after MEDIA_FRAMES frames
-# (MEDIA_ARGS: kind=photo|video|music dev=4 path=<dir> sel=<n> open
+# (MEDIA_ARGS: kind=photo|video|music dev=host path=<dir> sel=<n> open
 # keys=<buttons> mode=<video mode>; media/media.c says more). PCSX2 shows
 # no 720p (no vblanks): 1080i or the SD modes
 MEDIA_FRAMES ?= 300
@@ -159,7 +143,7 @@ media-shot:
 	echo "shot=$(MEDIA_FRAMES) $(MEDIA_ARGS)" > $(PS2MAX)/build/pcsx2-test/media.txt
 	PCSX2_RENDERER=sw $(RUNNER) $(PS2MAX)/build/pcsx2-test/media.elf 60
 
-# The home button on PCSX2 (kernel version 25): the shell (the MXOS build)
+# The home button on PCSX2 (kernel version 26): the shell (the MXOS build)
 # as the kernel's shell, a stand-in game that presses home twice (fakegame
 # "0 home=100", the kernel's "@@PAD" test lines): the paused game's hub,
 # Resume, Close (hometest). HOME_KERNEL: an emulator kernel built with
@@ -174,10 +158,10 @@ home-test: all fakegame
 	  > $(PS2MAX)/build/pcsx2-test/PS2MAX/home/game.ini
 	cp $(OUT)/MXOS/MXSHELL.ELF $(PS2MAX)/build/pcsx2-test/MXSHELL.ELF
 	cp $(HOME_KERNEL) $(PS2MAX)/build/pcsx2-test/mxk-home.elf
-	MXLOAD="host:MXSHELL.ELF dev=hostonly launch hometest" PCSX2_EE=interp PCSX2_RENDERER=sw \
+	MXLOAD="host:MXSHELL.ELF dev=hostonly launch hometest" MXSWAPCFG="host:mxos.swp 64" PCSX2_EE=interp PCSX2_RENDERER=sw \
 	  $(RUNNER) $(PS2MAX)/build/pcsx2-test/mxk-home.elf 60
 
-# Files on PCSX2: a picture (FILES_ARGS: dev=<n> path=<dir> sel=<n> mark=<n> menu keys)
+# Files on PCSX2: a picture (FILES_ARGS: dev=<n>|<name> path=<dir> sel=<n> mark=<n> menu keys)
 files-shot:
 	@test -n "$(RUNNER)" || { echo "make files-shot: set RUNNER (see the Makefile)"; exit 2; }
 	$(MAKE) MX_TARGET=standalone files

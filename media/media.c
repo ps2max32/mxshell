@@ -21,6 +21,7 @@
    with Media); MP3 (layer III) is listed but not played. */
 #include <GL/gl.h>
 #include <mx/debug.h>
+#include <mx/dev.h>
 #include <mx/ipu.h>
 #include <mx/loader.h>
 #include <mx/movie.h>
@@ -55,18 +56,13 @@ static const char *const kind_exts[NKINDS][6] = {
 };
 static int kind = K_PHOTO;
 
-/* ---- the devices (as Files) ---- */
+/* ---- the devices (as Files): the kernel's list, then the PC (host:) ---- */
 enum { ST_UNKNOWN, ST_LOOKING, ST_READY, ST_NONE };
 static struct {
-  const char *root, *name;
-  int drivers; /* DEV_USB or DEV_HDD: dev_drivers first; -1 none */
-  int state, tries;
-} devs[] = {
-    {"mc0:/", "Memory card 1", -1, ST_UNKNOWN, 0}, {"mc1:/", "Memory card 2", -1, ST_UNKNOWN, 0},
-    {"usb0:/", "USB drive", DEV_USB, ST_UNKNOWN, 0}, {"ata0:/", "Hard disk", DEV_HDD, ST_UNKNOWN, 0},
-    {"host:/", "Host", -1, ST_UNKNOWN, 0},
-};
-#define NDEV 5
+  char root[16], name[24];
+  int state, kind;
+} devs[PDEV_MAX];
+static int ndev;
 
 /* ---- the folder: its folders and the files of the kind ---- */
 #define MAXE 512
@@ -896,7 +892,7 @@ static void draw_devices(void) {
   float x0 = MARGIN, x1 = MARGIN + dev_w();
   d_card(x0, TOPY, x1, BOTY, 18, C_GRAPHITE);
   d_label(x0 + 20, TOPY + 34, "Devices", argb(C_FAINT, 1));
-  for (int d = 0; d < NDEV; d++) {
+  for (int d = 0; d < ndev; d++) {
     float y = TOPY + 84 + d * 66;
     int chosen = d == dsel, here = d == cdev;
     if (chosen) {
@@ -1238,23 +1234,58 @@ static void frame(void) {
   mxgl_frame_done();
 }
 
-/* ---- looking for the devices (as Files) ---- */
-static void look_step(void) {
-  for (int d = 0; d < NDEV; d++) {
-    if (devs[d].state != ST_LOOKING)
-      continue;
-    if (devs[d].tries == 0 && devs[d].drivers >= 0 && dev_drivers(devs[d].drivers) < 0) {
-      devs[d].state = ST_NONE;
-      continue;
-    }
-    int fd = mx_fio_dopen(devs[d].root);
-    if (fd >= 0) {
-      mx_fio_dclose(fd);
-      devs[d].state = ST_READY;
-    } else if (++devs[d].tries >= (d == 2 ? 16 : 1))
-      devs[d].state = ST_NONE;
+/* ---- the devices (as Files) ---- */
+static void video_close(void);
+static void music_stop(void);
+static u32 devs_gen = ~0u;
+static void devs_refresh(void) {
+  if (pdevs_gen() == devs_gen && ndev)
     return;
+  devs_gen = pdevs_gen();
+  char was[16] = "";
+  int host_state = ST_UNKNOWN;
+  if (cdev >= 0)
+    strcpy(was, devs[cdev].root);
+  for (int d = 0; d < ndev; d++)
+    if (devs[d].kind == MX_DEV_HOST)
+      host_state = devs[d].state;
+  struct pdev p[PDEV_MAX];
+  int n = pdevs_read(p, PDEV_MAX - 1, 0);
+  ndev = 0;
+  for (int i = 0; i < n; i++, ndev++) {
+    mx_snprintf(devs[ndev].root, sizeof devs[ndev].root, "%s/", p[i].root);
+    mx_snprintf(devs[ndev].name, sizeof devs[ndev].name, "%s", pdev_name(&p[i]));
+    devs[ndev].state = ST_READY, devs[ndev].kind = p[i].kind;
   }
+  strcpy(devs[ndev].root, "host:/"), strcpy(devs[ndev].name, "PC (host)");
+  devs[ndev].state = host_state, devs[ndev++].kind = MX_DEV_HOST;
+  cdev = -1;
+  for (int d = 0; d < ndev; d++)
+    if (!strcmp(devs[d].root, was))
+      cdev = d;
+  /* the device open went: what played from it stops */
+  if (was[0] && cdev < 0) {
+    if (view == V_VIDEO)
+      video_close();
+    if (mu.state && !strncmp(mu.path, was, strlen(was)))
+      music_stop();
+    view = V_BROWSE;
+    toast(N_DEVICE, "Removed", was, 0);
+    pane = P_DEVICES, nents = 0, cwd[0] = 0;
+  }
+  if (dsel >= ndev)
+    dsel = ndev - 1;
+}
+
+/* the PC: looked at when chosen */
+static void look_step(void) {
+  for (int d = 0; d < ndev; d++)
+    if (devs[d].state == ST_LOOKING) {
+      int fd = mx_fio_dopen(devs[d].root);
+      if (fd >= 0)
+        mx_fio_dclose(fd);
+      devs[d].state = fd >= 0 ? ST_READY : ST_NONE;
+    }
 }
 
 /* the chosen entry opened: a folder, or the file in its view */
@@ -1317,13 +1348,13 @@ static void browse_input(void) {
   if (pane == P_DEVICES) {
     if (p & MX_PAD_UP && dsel > 0)
       dsel--;
-    if (p & MX_PAD_DOWN && dsel + 1 < NDEV)
+    if (p & MX_PAD_DOWN && dsel + 1 < ndev)
       dsel++;
     if (p & (MX_PAD_CROSS | MX_PAD_RIGHT)) {
       if (devs[dsel].state == ST_READY)
         open_dev(dsel);
       else if (devs[dsel].state != ST_LOOKING) {
-        devs[dsel].state = ST_LOOKING, devs[dsel].tries = 0;
+        devs[dsel].state = ST_LOOKING;
         while (devs[dsel].state == ST_LOOKING) {
           look_step();
           if (devs[dsel].state == ST_LOOKING)
@@ -1453,13 +1484,13 @@ int main(int argc, char **argv) {
     argc = args_from_host(&argv);
 #endif
   int shot = 0, odev = -1, osel = 0, oopen = 0;
-  const char *opath = 0, *okeys = 0;
+  const char *opath = 0, *okeys = 0, *odev_s = 0;
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i];
     if (!strncmp(a, "shot=", 5))
       shot = atoi(a + 5);
     else if (!strncmp(a, "dev=", 4))
-      odev = atoi(a + 4);
+      odev_s = a + 4;
     else if (!strncmp(a, "path=", 5))
       opath = a + 5;
     else if (!strncmp(a, "sel=", 4))
@@ -1486,14 +1517,19 @@ int main(int argc, char **argv) {
   mxgl_init();
   pad_on = mx_pad_init() >= 0;
   video_apply();
-  devs[0].state = devs[1].state = devs[2].state = ST_LOOKING;
+  devs_refresh();
+  /* tests: dev=<n> the n-th device, or dev=<name> the one whose name starts so (dev=host) */
+  if (odev_s)
+    for (int d = 0; d < ndev; d++)
+      if ((odev_s[0] >= '0' && odev_s[0] <= '9') ? d == atoi(odev_s) : !strncmp(devs[d].root, odev_s, strlen(odev_s)))
+        odev = d;
   u32 keys_from = 0;
 
   for (;;) {
     ticks++;
     read_pad();
     if (ticks % 15 == 0)
-      look_step();
+      devs_refresh(), look_step();
     if (odev >= 0 && devs[odev].state != ST_LOOKING) {
       if (devs[odev].state == ST_UNKNOWN)
         devs[odev].state = ST_LOOKING;

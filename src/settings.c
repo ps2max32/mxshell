@@ -1,13 +1,14 @@
 /* MXSHELL2: Settings, with what the OS offers today (PLAN.md, phase A):
      Video        the shell's mode: the console's own, NTSC or PAL (libgl's modes)
      Network      IPCONFIG.DAT on the card: the kernel reads it at its start
-     Storage      where the shell looks for games, and what it found
+     Storage      the devices (the kernel's list), ejecting one, the swap file
      Controllers  which ports have a pad; the motors tried
      System       the shell, the kernel, the services the kernel starts
    The rest (battery, light colour, network status, time) comes with the
    OS's parts (O1-O8). */
 #include <GL/gl.h>
 #include <mx/debug.h>
+#include <mx/dev.h>
 #include <mx/kernel.h>
 #include <mx/pad.h>
 #include <mx/sif.h>
@@ -21,9 +22,11 @@
 /* only libmxk has the kernel's table (the standalone build: none) */
 #pragma weak mx__kernel
 
-enum { P_VIDEO, P_NETWORK, P_STORAGE, P_PADS, P_SYSTEM, NPAGES };
 static const char *const page_name[NPAGES] = {"Video", "Network", "Storage", "Controllers", "System"};
 static int page, in_page, item, edit;
+/* Storage: the kernel's devices, the swap file's device chosen (-1 none) */
+static struct pdev st_dev[PDEV_MAX];
+static int st_n, st_pick;
 static struct spring sel;
 static u32 rumble_until;
 
@@ -81,7 +84,7 @@ static int nitems(void) {
     return vrows(r);
   }
   case P_NETWORK: return 4;
-  case P_STORAGE: return NDEVS + 1;
+  case P_STORAGE: return st_n + 2;
   case P_PADS: return 2;
   default: return 0;
   }
@@ -303,24 +306,95 @@ static void page_network(float x0, float x1, float y) {
   note(x0, y + ROW * 4 + 26, "Automatic (DHCP) and the status come with the OS's network calls.");
 }
 
+/* ---- Storage: the kernel's devices, the swap file, games from the PC ---- */
+static u32 st_gen = ~0u;
+/* where the swap file may go: a drive (not a memory card, not the PC) */
+static int swap_ok(const struct pdev *d) {
+  return d->kind != MX_DEV_MC && d->kind != MX_DEV_HOST && !(d->flags & MX_DEV_READONLY);
+}
+static void st_read(void) {
+  if (pdevs_gen() == st_gen)
+    return;
+  st_gen = pdevs_gen();
+  st_n = pdevs_read(st_dev, PDEV_MAX, 0);
+  /* the choice: where the swap file is now */
+  struct mx_swap_info si;
+  st_pick = -1;
+  if (mx_swap_info(&si) == 0 && si.path[0])
+    for (int i = 0; i < st_n; i++)
+      if (!strncmp(si.path, st_dev[i].root, strlen(st_dev[i].root)))
+        st_pick = i;
+}
+static void swap_path(char *out, int len, int d) {
+  if (d < 0)
+    out[0] = 0;
+  else
+    mx_snprintf(out, len, "%s/PS2MAX/swap.bin", st_dev[d].root);
+}
+
 static void page_storage(float x0, float x1, float y) {
-  static const char *const keys[NDEVS] = {"dev.usb", "dev.hdd", "dev.host"};
-  for (int d = 0; d < NDEVS; d++) {
-    int on = cfg_get(keys[d], d == DEV_HOST ? "0" : "1")[0] == '1';
-    char v[32];
+  st_read();
+  for (int d = 0; d < st_n; d++) {
+    const struct pdev *v = &st_dev[d];
+    char l[48], val[64], b[16], f[16];
+    mx_snprintf(l, sizeof l, "%s" DOT "%s", pdev_name(v), v->label[0] ? v->label : v->root);
+    pdev_bytes(b, sizeof b, v->size);
+    val[0] = 0;
+    if (v->free)
+      pdev_bytes(f, sizeof f, v->free), mx_snprintf(val, sizeof val, "%s free of %s", f, b);
+    else if (v->size)
+      mx_snprintf(val, sizeof val, "%s", b);
     int n = 0;
-    for (int i = 0; i < ngames; i++) {
-      char p[16];
-      game_path(p, sizeof p, i, "");
-      n += !strncmp(p, dev_root[d], strlen(dev_root[d]));
+    for (int g = 0; g < ngames; g++)
+      n += !strcmp(game_root(g), v->root);
+    if (n) {
+      int l0 = (int)strlen(val);
+      mx_snprintf(val + l0, sizeof val - (u32)l0, "%s%d game%s", l0 ? DOT : "", n, n == 1 ? "" : "s");
     }
-    mx_snprintf(v, sizeof v, !on ? "Off" : dev_found[d] ? "%d games" : "Not found", n);
-    char l[32];
-    mx_snprintf(l, sizeof l, "%s" DOT "%s", dev_name[d], dev_root[d]);
-    line(x0, x1, y + ROW * d, l, v, in_page && item == d, on);
+    if (v->flags & MX_DEV_SWAP) {
+      int l0 = (int)strlen(val);
+      mx_snprintf(val + l0, sizeof val - (u32)l0, "%sswap", l0 ? DOT : "");
+    }
+    line(x0, x1, y + ROW * d, l, val, in_page && item == d, 1);
   }
-  line(x0, x1, y + ROW * NDEVS, "Look again", 0, in_page && item == NDEVS, 1);
-  note(x0, y + ROW * (NDEVS + 1), "Games are in <device>/PS2MAX/<game>/.");
+  /* the swap file: left and right choose the device, cross uses it */
+  struct mx_swap_info si;
+  memset(&si, 0, sizeof si);
+  mx_swap_info(&si);
+  const char *const state[] = {"None", "Waiting for its device", "Being made", "In use", "Could not be made"};
+  int ys = st_n, chosen = in_page && item == ys;
+  /* the choices side by side: None and the drives it may go on */
+  const char *ch[PDEV_MAX + 1];
+  int nch = 0, on = 0;
+  ch[nch++] = "None";
+  for (int d = 0; d < st_n; d++)
+    if (swap_ok(&st_dev[d])) {
+      if (d == st_pick)
+        on = nch;
+      ch[nch++] = st_dev[d].root;
+    }
+  line(x0, x1, y + ROW * ys, "Swap file", 0, chosen, 1);
+  seg(x1, y + ROW * ys, ch, nch, on, chosen);
+  line(x0, x1, y + ROW * (ys + 1), "Games from the PC (host:)", cfg_get("dev.host", "0")[0] == '1' ? "On" : "Off",
+       in_page && item == ys + 1, 1);
+  float ny = y + ROW * (ys + 2);
+  char m[96];
+  mx_snprintf(m, sizeof m, "Swap file: %s%s%s.", si.path[0] ? si.path : "none", si.path[0] ? DOT : "",
+              si.path[0] ? state[si.state < 5 ? si.state : 0] : "");
+  note(x0, ny, m);
+  if (!si.path[0])
+    d_text(FONT_SMALL, x0, ny + 26, "Without a swap file MXOS runs out of memory soon.", argb(C_WARN, 1));
+  else
+    note(x0, ny + 26, "Cross on a device: ready to remove. Games are in <device>/PS2MAX/.");
+}
+
+void settings_goto(int pg, int swap_row) {
+  settings_enter();
+  page = pg, in_page = 1, edit = 0;
+  st_gen = ~0u;
+  st_read();
+  item = pg == P_STORAGE && swap_row ? st_n : 0;
+  screen = SCR_SETTINGS;
 }
 
 static void page_pads(float x0, float x1, float y) {
@@ -526,6 +600,21 @@ void settings_input(void) {
     video_input(p);
     return;
   }
+  if (page == P_STORAGE && item == st_n && p & (MX_PAD_LEFT | MX_PAD_RIGHT)) {
+    /* the swap file's device: none, then the drives it may go on */
+    int d = p & MX_PAD_RIGHT ? 1 : -1, at = st_pick;
+    for (int k = 0; k <= st_n; k++) {
+      at += d;
+      if (at < -1)
+        at = st_n - 1;
+      if (at >= st_n)
+        at = -1;
+      if (at < 0 || swap_ok(&st_dev[at]))
+        break;
+    }
+    st_pick = at;
+    return;
+  }
   if (p & (MX_PAD_CIRCLE | MX_PAD_LEFT))
     in_page = 0;
   if (!(p & MX_PAD_CROSS))
@@ -538,13 +627,20 @@ void settings_input(void) {
       ip_save();
     break;
   case P_STORAGE:
-    if (item < NDEVS) {
-      static const char *const keys[NDEVS] = {"dev.usb", "dev.hdd", "dev.host"};
-      int on = cfg_get(keys[item], item == DEV_HOST ? "0" : "1")[0] == '1';
-      cfg_set(keys[item], on ? "0" : "1");
+    if (item < st_n) {
+      /* ready to remove: the kernel says why not when it is not */
+      if (st_dev[item].kind != MX_DEV_MC && mx_dev_eject(st_dev[item].root) == 0)
+        toast(N_DEVICE, "Ready to remove", pdev_name(&st_dev[item]), 0);
+    } else if (item == st_n) {
+      char path[40];
+      swap_path(path, sizeof path, st_pick);
+      if (mx_swap_set(path, 64) < 0)
+        toast(N_WARN, "Swap file not set", path[0] ? path : "None", 1);
+    } else {
+      cfg_set("dev.host", cfg_get("dev.host", "0")[0] == '1' ? "0" : "1");
       cfg_save();
+      games_search();
     }
-    games_search();
     break;
   case P_PADS:
     if (mx_pad_connected(item) && mx_pad_rumble(item, 1, 160) >= 0)

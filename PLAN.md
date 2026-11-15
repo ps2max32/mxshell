@@ -172,6 +172,14 @@ Status 2026-11-13: A0-A5 are built and run on PCSX2 (standalone, and under the k
 not yet on the PS2. Open in phase A: a device that comes or goes while the shell is on (now
 only when it looks), mxshell's MX4SIO, A6.
 
+Status 2026-11-15: the home button (kernel 25: pause, Resume, Close; the start of B5) and
+Media (photos, videos, music) are built and tested on PCSX2. On kernel 26 the shell takes its
+devices from the kernel (`<mx/dev.h>`: the kernel loads the storage drivers; the shelf fills
+again when one comes or goes), shows the kernel's notifications (`<mx/notify.h>`) as cards
+with their action, and Settings > Storage shows the devices, readies one for removal and sets
+where MXOS's swap file is: B3's storage part and B4. Files and Media use the same list.
+Nothing is kept for older kernels. Device hotplug needs the PS2 (PCSX2's IOP has no mxio).
+
 ### Phase B: with the OS parts
 
 | Step | What | Needs |

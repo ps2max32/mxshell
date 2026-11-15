@@ -160,24 +160,39 @@ extern const char *const sec_name[NSECS];
 extern int home_sec;
 extern struct game games[MAX_GAMES];
 extern int ngames;
-/* the devices the shell looks for games on */
-enum { DEV_USB, DEV_HDD, DEV_HOST, NDEVS };
-extern const char *const dev_root[NDEVS];
-extern const char *const dev_name[NDEVS];
-extern int dev_found[NDEVS]; /* drivers loaded and PS2MAX/ seen */
-int dev_drivers(int d); /* the device's drivers on the IOP (drivers.c): 0, or -1 */
+/* the storage devices (devlist.c): the kernel's list (<mx/dev.h>, kernel
+   version 26: it loads the drivers and sees devices come and go) and host:
+   when asked for */
+#define PDEV_MAX 8
+struct pdev {
+  char root[12];  /* "usb0:" */
+  char label[24]; /* the volume's label, "" none */
+  u8 kind, fs, flags; /* MX_DEV_*, MX_DEV_FS_*, MX_DEV_SWAP/BUSY/READONLY */
+  u64 size, free; /* bytes, 0 not known */
+};
+int pdevs_read(struct pdev *d, int max, int host); /* the devices there now (host: last if asked) */
+u32 pdevs_gen(void);                               /* changes when the list does */
+const char *pdev_name(const struct pdev *d);        /* "USB drive", "Memory card 2" */
+void pdev_bytes(char *out, int len, u64 bytes);     /* "29.8 GB" */
+/* the devices the shell looked for games on (games.c): the kernel's
+   without the memory cards, host: with dev.host */
+extern struct pdev gdevs[PDEV_MAX];
+extern int ngdevs;
+extern int gdev_games[PDEV_MAX]; /* games found on each */
 /* a step of looking (call a few times a second): 1 when done */
 int games_step(void);
 void games_restart(void);
 /* look again, a step each quarter second from the main loop */
 void games_search(void);
 extern int games_searching;
+extern int host_only;                              /* tests: host: alone */
+const char *game_root(int i);                      /* "usb0:" */
+int games_find(const char *root, const char *dir); /* the game again after a search, -1 gone */
 void games_textures(void); /* the covers as textures (after a game, again) */
 void games_textures_free(void);
-/* start game i: with spawn beside the shell (mx_proc_spawn: its process, or
-   -1), else in its place (mx_loader_launch: its exit status, -1 not started) */
-int game_launch(int i, int spawn);
-/* a game paused behind the shell by the home button (kernel version 25):
+/* start game i beside the shell (mx_proc_spawn): its process, or -1 */
+int game_launch(int i);
+/* a game paused behind the shell by the home button:
    its index in games, -1 none; game_close ends it (main.c) */
 extern int run_game;
 void game_close(void);
@@ -189,6 +204,9 @@ void toast(int kind, const char *title, const char *text, int urgent);
 void toast_draw(void);
 void toast_step(void);
 int toast_dismiss(void); /* an urgent one waiting for a button: 1 if taken */
+void notes_poll(void);   /* the kernel's new notifications as cards */
+int toast_action(void);  /* the lit card's action (MX_NOTIFY_ACTION_*), 0 none */
+void toast_done(void);   /* the lit card away */
 
 /* ---- the settings (settings.c): mc0:/MXOS/MXSHELL2.CF0 and .CF1 until the kernel has a store ---- */
 const char *cfg_get(const char *key, const char *def);
@@ -214,6 +232,8 @@ void hub_input(void);
 void settings_draw(void);
 void settings_input(void);
 void settings_enter(void);
+enum { P_VIDEO, P_NETWORK, P_STORAGE, P_PADS, P_SYSTEM, NPAGES };
+void settings_goto(int page, int swap_row); /* a page open (a notification's action) */
 void video_apply(void);
 void boot_draw(void);
 /* dithering into 16 bits (dither.c) */

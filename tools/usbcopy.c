@@ -4,37 +4,17 @@
      usbcopy <from> <to> [<from> <to> ...]
      usbcopy @<list>      the pairs from a file, "<from> <to>" a line
 
-   e.g. usbcopy host:coverhd.t8 usb0:/PS2MAX/quake1/coverhd.t8. It loads the
-   USB storage drivers from mc0:/MXOS first (as MXSHELL2 does; those already
-   on the IOP are left), waits for usb0: to come, then copies each file and
-   reads it back to compare. Ends with the number of files that failed. */
+   e.g. usbcopy host:coverhd.t8 usb0:/PS2MAX/quake1/coverhd.t8. The kernel
+   (version 26) has the USB drivers loaded; usbcopy checks usb0: is there,
+   then copies each file and reads it back to compare. Ends with the number
+   of files that failed. */
 #include <mx/debug.h>
-#include <mx/iop.h>
 #include <mx/mx.h>
 #include <mx/sif.h>
 #include <mx/thread.h>
 #include <string.h>
 
-static u8 irx[128 * 1024] MX_ALIGNED(64) MX_CORE_BSS; /* the IOP reads it by SIF DMA */
 static u8 buf[256 * 1024], back[256 * 1024];
-
-static int load(const char *file, const char *name) {
-  struct mx_iop_module m;
-  if (mx_iop_find_module(name, &m) > 0) /* its id; 0: not loaded */
-    return 0;
-  char path[48];
-  mx_snprintf(path, sizeof path, "mc0:/MXOS/%s.irx", file);
-  int fd = mx_fio_open(path, MX_FIO_RDONLY);
-  if (fd < 0) {
-    mx_printf("usbcopy: %s: not there\n", path);
-    return -1;
-  }
-  int n = mx_fio_read(fd, irx, sizeof irx), res = 0;
-  mx_fio_close(fd);
-  int id = n > 0 && n < (int)sizeof irx ? mx_iop_load_module_buffer(irx, (u32)n, 0, 0, &res) : -1;
-  mx_printf("usbcopy: %s: %d\n", file, id);
-  return id < 0 ? -1 : 0;
-}
 
 static int read_all(const char *path, u8 *to, u32 room) {
   int fd = mx_fio_open(path, MX_FIO_RDONLY);
@@ -72,18 +52,7 @@ static int copy(const char *from, const char *to) {
 }
 
 int main(int argc, char **argv) {
-  static const char *const mods[4][2] = {
-      {"bdm", "bdm"}, {"bdmfs_fatfs", "bdmff"}, {"usbd", "USB_driver"}, {"usbmass_bd", "usbmass_bd"}};
-  for (int i = 0; i < 4; i++)
-    if (load(mods[i][0], mods[i][1]) < 0)
-      return 1;
-  /* the stick comes a little after its drivers */
-  int d = -1;
-  for (int t = 0; t < 40 && d < 0; t++) {
-    d = mx_fio_dopen("usb0:/PS2MAX");
-    if (d < 0)
-      mx_sleep_us(250000);
-  }
+  int d = mx_fio_dopen("usb0:/");
   if (d < 0) {
     mx_printf("usbcopy: no usb0:\n");
     return 1;

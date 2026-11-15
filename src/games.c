@@ -1,14 +1,13 @@
 /* MXSHELL2: the games, from <device>/PS2MAX/<game>/game.ini (the format
    mxshell and its package-games.sh use: title, year, type, elf, args,
-   description, cover; and saves). The storage drivers come from mc0:/MXOS,
-   each loaded once. A game starts with mx_loader_launch: the shell waits
-   meanwhile, and its textures are given back first. */
+   description, cover; and saves), on the devices the kernel lists
+   (devlist.c) but the memory cards. A game starts beside the shell
+   (mx_proc_spawn); the shell's textures are given back first. */
 #define GL_GLEXT_PROTOTYPES 1
 #include <GL/gl.h>
 #include <GL/glext.h>
-#include <mx/iop.h>
+#include <mx/dev.h>
 #include <mx/mem.h>
-#include <mx/loader.h>
 #include <mx/proc.h>
 #include <mx/mx.h>
 #include <mx/sif.h>
@@ -18,14 +17,12 @@
 
 #include "pn.h"
 
-#define MXOS "mc0:/MXOS/"
-#define TRIES 40 /* a device is looked for this many times, a quarter second apart */
-
 struct game games[MAX_GAMES];
 int ngames;
-const char *const dev_root[NDEVS] = {"usb0:", "ata0:", "host:"};
-const char *const dev_name[NDEVS] = {"USB", "HDD", "Host"};
-int dev_found[NDEVS];
+struct pdev gdevs[PDEV_MAX];
+int ngdevs;
+int gdev_games[PDEV_MAX];
+#define dev_root(d) gdevs[d].root
 
 static int game_dev[MAX_GAMES];
 
@@ -33,9 +30,9 @@ static int game_dev[MAX_GAMES];
    PS2MAX (Media's tiles share one program) */
 void game_path(char *out, int len, int i, const char *file) {
   if (!strncmp(file, "../", 3))
-    mx_snprintf(out, len, "%s/PS2MAX/%s", dev_root[game_dev[i]], file + 3);
+    mx_snprintf(out, len, "%s/PS2MAX/%s", dev_root(game_dev[i]), file + 3);
   else
-    mx_snprintf(out, len, "%s/PS2MAX/%s/%s", dev_root[game_dev[i]], games[i].dir, file);
+    mx_snprintf(out, len, "%s/PS2MAX/%s/%s", dev_root(game_dev[i]), games[i].dir, file);
 }
 
 static void set(char *d, u32 n, const char *s) {
@@ -56,12 +53,12 @@ static u32 title_colour(const char *t) {
 
 static int read_ini(int dev, struct game *g) {
   char path[96], buf[768];
-  mx_snprintf(path, sizeof path, "%s/PS2MAX/%s/game.ini", dev_root[dev], g->dir);
+  mx_snprintf(path, sizeof path, "%s/PS2MAX/%s/game.ini", dev_root(dev), g->dir);
   int fd = mx_fio_open(path, MX_FIO_RDONLY);
   if (fd < 0) {
     /* a directory with <directory>.elf is a game too */
     mx_snprintf(g->elf, sizeof g->elf, "%s.elf", g->dir);
-    mx_snprintf(path, sizeof path, "%s/PS2MAX/%s/%s", dev_root[dev], g->dir, g->elf);
+    mx_snprintf(path, sizeof path, "%s/PS2MAX/%s/%s", dev_root(dev), g->dir, g->elf);
     fd = mx_fio_open(path, MX_FIO_RDONLY);
     if (fd < 0)
       return -1;
@@ -127,60 +124,55 @@ static void scan(int dev, int dir) {
   }
 }
 
-static int step_dev, step_tries;
-int games_searching;
+static int step_dev;
+int games_searching, host_only;
+
+const char *game_root(int i) { return dev_root(game_dev[i]); }
+int games_find(const char *root, const char *dir) {
+  for (int i = 0; i < ngames; i++)
+    if (!strcmp(game_root(i), root) && !strcmp(games[i].dir, dir))
+      return i;
+  return -1;
+}
 
 void games_search(void) {
   games_restart();
   games_searching = 1;
 }
 
+/* the devices again (the memory cards hold no games), the games forgotten */
 void games_restart(void) {
   games_textures_free();
   ngames = 0;
-  step_dev = step_tries = 0;
-  for (int d = 0; d < NDEVS; d++)
-    dev_found[d] = 0;
+  step_dev = 0;
+  struct pdev all[PDEV_MAX];
+  int n = host_only ? 0 : pdevs_read(all, PDEV_MAX - 1, 0);
+  if (cfg_get("dev.host", "0")[0] == '1') {
+    memset(&all[n], 0, sizeof all[n]);
+    strcpy(all[n].root, "host:");
+    all[n++].kind = MX_DEV_HOST;
+  }
+  ngdevs = 0;
+  for (int i = 0; i < n; i++)
+    if (all[i].kind != MX_DEV_MC)
+      gdevs[ngdevs] = all[i], gdev_games[ngdevs++] = 0;
 }
 
-static int dev_wanted(int d) {
-  static const char *const keys[NDEVS] = {"dev.usb", "dev.hdd", "dev.host"};
-  return cfg_get(keys[d], d == DEV_HOST ? "0" : "1")[0] == '1';
-}
-
+/* one device a step, so the frames go on */
 int games_step(void) {
-  while (step_dev < NDEVS) {
-    int d = step_dev;
-    if (!dev_wanted(d)) {
-      step_dev++, step_tries = 0;
-      continue;
-    }
-    if (step_tries == 0)
-      if (dev_drivers(d) < 0) {
-        /* without its drivers the device cannot come */
-        mx_printf("mxshell: %s: no drivers\n", dev_root[d]);
-        step_tries = TRIES;
-      }
-    if (step_tries >= TRIES) {
-      step_dev++, step_tries = 0;
-      continue;
-    }
-    char path[24];
-    mx_snprintf(path, sizeof path, "%s/PS2MAX", dev_root[d]);
-    int dir = mx_fio_dopen(path);
-    if (dir < 0) {
-      /* USB and the HDD come up a little after their drivers */
-      if (d != DEV_HOST && ++step_tries < TRIES)
-        return 0;
-      step_dev++, step_tries = 0;
-      continue;
-    }
-    dev_found[d] = 1;
+  if (step_dev >= ngdevs)
+    return 1;
+  int d = step_dev++;
+  char path[24];
+  mx_snprintf(path, sizeof path, "%s/PS2MAX", dev_root(d));
+  int dir = mx_fio_dopen(path);
+  if (dir >= 0) {
+    int before = ngames;
     scan(d, dir);
     mx_fio_dclose(dir);
-    step_dev++, step_tries = 0;
+    gdev_games[d] = ngames - before;
   }
-  return 1;
+  return step_dev >= ngdevs;
 }
 
 /* A cover: a CLUT of 256 RGBA entries in the GS's CSM1 order (alpha 0x80),
@@ -254,8 +246,8 @@ void games_textures_free(void) {
     }
 }
 
-int game_launch(int i, int spawn) {
-  static char args[256], swap[48];
+int game_launch(int i) {
+  static char args[256];
   game_path(args, 112, i, games[i].elf);
   char *e = args + strlen(args) + 1;
   int argc = 1;
@@ -269,11 +261,6 @@ int game_launch(int i, int spawn) {
     *e++ = 0;
     argc++;
   }
-  mx_snprintf(swap, sizeof swap, "%s/PS2MAX/swap.bin", dev_root[game_dev[i]]);
-  int fd = mx_fio_open(swap, MX_FIO_RDONLY);
-  if (fd >= 0)
-    mx_fio_close(fd);
-  if (spawn)
-    return mx_proc_spawn(argc, args, (u32)(e - args), fd >= 0 ? swap : 0);
-  return mx_loader_launch(argc, args, (u32)(e - args), fd >= 0 ? swap : 0);
+  /* the swap file is MXOS's own (the Storage page) */
+  return mx_proc_spawn(argc, args, (u32)(e - args), 0);
 }
