@@ -186,7 +186,7 @@ Nothing is kept for older kernels. Device hotplug needs the PS2 (PCSX2's IOP has
 |---|---|---|
 | B1 | Settings store: `MXSHELL2.CFG` moves into the kernel's (done 2026-11-15, kernel 27: the shell keeps a copy and saves a changed key, a tried video mode only once confirmed; test arguments are never saved) | O1 |
 | B2 | Controllers in full: kind, battery, charging, light colour, turn off, forget, pair (built 2026-11-15 on kernel 28; PCSX2 only so far) | O4 |
-| B3 | Network status and settings at run time; Date and time; Storage events | O5, O6, O7 |
+| B3 | Network status and settings at run time (built 2026-11-16 on kernel 30; PCSX2 only so far); Date and time (built 2026-11-16 on kernel 29, a clock in the top bar; PCSX2 has no time); Storage events (done, kernel 26) | O5, O6, O7 |
 | B7 | Video in the system's settings: the mode, output, TV shape, overscan (test frame), programs stretched or native, the modes this TV shows; a change kept within 15 s or put back (built 2026-11-16 on kernel 31; PCSX2 only so far) | kernel 31 |
 | B4 | Notifications from the kernel's ring (pads, devices, network, other programs) | O2, O3 |
 | B5 | Game menu, Pedestal: the kept picture as the first tile, the menu tiles, the Controllers page, Capture, Close; notifications that came during the game appear when it opens | step 5 (5c), O8 |

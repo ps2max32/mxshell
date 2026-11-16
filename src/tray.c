@@ -131,4 +131,10 @@ void tray_draw(void) {
     d_label(cx - lw / 2, cy + 22, n, argb(swap ? C_LAMP : C_FAINT, 1));
     x -= w + 14, shown++;
   }
+  /* the clock, when the time is known */
+  char t[16];
+  if (clock_text(t, sizeof t) == 0) {
+    d_rect(x - 2, cy - 15, x - 1, cy + 17, argb(C_WHITE, 0.12f), argb(C_WHITE, 0.12f)), x -= 16;
+    d_text(FONT_BODY, x - d_text_w(FONT_BODY, t), TOP, t, argb(C_DIM, 1));
+  }
 }

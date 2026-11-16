@@ -49,7 +49,7 @@ $(MAXSDK_OUT)/libc/glue.c.o $(MAXSDK_OUT)/libmxc.a $(MAXSDK_OUT)/librt.a &: $(MX
 SCFLAGS   = $(filter-out -ffreestanding,$(CFLAGS)) -MMD -nostdlibinc -isystem $(PICOLIBC)/include \
             -I$(MXGL_INC) -ffast-math -cl-single-precision-constant
 
-SRCS = main draw surface font tile games home hub settings pads tray settings_store toast dither video overscan devlist
+SRCS = main draw surface font tile games home hub settings pads tray clock settings_store toast dither video overscan devlist
 # zlib's inflate (libs/zlib), for the font atlases
 ZLIB   ?= $(PS2MAX)/libs/zlib
 ZSRCS   = inflate inftrees inffast zutil adler32 uncompr

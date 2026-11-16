@@ -2,19 +2,22 @@
      Video        the system's video settings (kernel version 31): the mode
                   (tried for 15 s), the output, the TV's shape, overscan,
                   how programs are shown; the shell's own picture
-     Network      IPCONFIG.DAT on the card: the kernel reads it at its start
+     Network      the kernel's status (version 30), automatic (DHCP) or
+                  manual addresses: the settings net.*
      Storage      the devices (the kernel's list), ejecting one, the swap file
      Controllers  which ports have a pad; the motors tried
      System       the shell, the kernel, the services the kernel starts
-   The rest (battery, light colour, network status, time) comes with the
-   OS's parts (O1-O8). */
+     Date and time  the kernel's time (version 29): set, the zone, summer
+                  time, the clock's format */
 #include <GL/gl.h>
 #include <mx/debug.h>
 #include <mx/dev.h>
 #include <mx/kernel.h>
+#include <mx/net.h>
 #include <mx/pad.h>
 #include <mx/screen.h>
 #include <mx/sif.h>
+#include <mx/time.h>
 #include <mx/setting.h>
 #include <mx/video.h>
 #include <math.h>
@@ -26,55 +29,75 @@
 /* only libmxk has the kernel's table (the standalone build: none) */
 #pragma weak mx__kernel
 
-static const char *const page_name[NPAGES] = {"Video", "Network", "Storage", "Controllers", "System"};
+static const char *const page_name[NPAGES] = {"Video", "Network", "Storage", "Controllers", "Date and time", "System"};
 static int page, in_page, item, edit;
+/* Date and time: its rows, the field being changed (TF_*; 0 none) and the
+   date and time being set */
+enum { TR_DATE, TR_ZONE, TR_DST, TR_FORMAT, TR_ROWS };
+enum { TF_DAY = 1, TF_MONTH, TF_YEAR, TF_HOUR, TF_MINUTE };
+static int tedit;
+static struct mx_tm tset;
+static void toggle(const char *key, const char *a, const char *b, const char *def);
 /* Storage: the kernel's devices, the swap file's device chosen (-1 none) */
 static struct pdev st_dev[PDEV_MAX];
 static int st_n, st_pick;
 static struct spring sel;
 
-/* ---- Network: IPCONFIG.DAT, "ip mask gw" ---- */
-#define IPCONF "mc0:/MXOS/IPCONFIG.DAT"
-static u8 ip[3][4];
-static int ip_loaded, ip_dirty;
+/* ---- Network (kernel version 30, <mx/net.h>): the kernel's status, and
+   the set-up as settings: net.mode "dhcp" or "manual" (net.ip, net.mask,
+   net.gw, net.dns), which the kernel applies a second after the last
+   change. The manual addresses are edited here and written together ---- */
+enum { NR_MODE, NR_IP, NR_MASK, NR_GW, NR_DNS, NR_USE, NR_ROWS };
+static const char *const net_key[NR_USE] = {0, "net.ip", "net.mask", "net.gw", "net.dns"};
+static u8 ip[NR_USE][4]; /* the manual addresses, NR_IP..NR_DNS */
+static int ip_dirty;
 
-static void ip_load(void) {
-  static const u8 def[3][4] = {{192, 168, 1, 10}, {255, 255, 255, 0}, {192, 168, 1, 1}};
-  memcpy(ip, def, sizeof ip);
-  char buf[96];
-  int fd = mx_fio_open(IPCONF, MX_FIO_RDONLY);
-  if (fd >= 0) {
-    int n = mx_fio_read(fd, buf, sizeof buf - 1);
-    mx_fio_close(fd);
-    buf[n > 0 ? n : 0] = 0;
-    const char *s = buf;
-    for (int a = 0; a < 3; a++)
-      for (int b = 0; b < 4; b++) {
-        while (*s && (*s < '0' || *s > '9'))
-          s++;
-        u32 v = 0;
-        while (*s >= '0' && *s <= '9')
-          v = v * 10 + (u32)(*s++ - '0');
-        if (*s || v)
-          ip[a][b] = (u8)v;
-      }
+static int net_dhcp(void) { return !strcmp(cfg_get("net.mode", "manual"), "dhcp"); }
+
+static void addr_of(u32 a, u8 *o) { o[0] = (u8)a, o[1] = (u8)(a >> 8), o[2] = (u8)(a >> 16), o[3] = (u8)(a >> 24); }
+
+/* a dotted address; 0 if it is not one */
+static int addr_parse(const char *t, u8 *o) {
+  for (int b = 0; b < 4; b++) {
+    u32 v = 0, n = 0;
+    while (*t >= '0' && *t <= '9' && n < 4)
+      v = v * 10 + (u32)(*t++ - '0'), n++;
+    if (!n || v > 255 || (b < 3 && *t++ != '.'))
+      return 0;
+    o[b] = (u8)v;
   }
-  ip_loaded = 1;
+  return !*t;
 }
 
-static void ip_save(void) {
-  char buf[64];
-  int n = mx_snprintf(buf, sizeof buf, "%u.%u.%u.%u %u.%u.%u.%u %u.%u.%u.%u\n", ip[0][0], ip[0][1], ip[0][2],
-                      ip[0][3], ip[1][0], ip[1][1], ip[1][2], ip[1][3], ip[2][0], ip[2][1], ip[2][2], ip[2][3]);
-  int fd = mx_fio_open(IPCONF, MX_FIO_WRONLY | MX_FIO_CREAT | MX_FIO_TRUNC);
-  if (fd < 0) {
-    toast(N_WARN, "Not saved", "The memory card could not be written", 1);
-    return;
+/* the fields: the settings, else what the network uses now, else the
+   kernel's defaults */
+static void ip_load(void) {
+  static const u8 def[NR_USE][4] = {{0}, {192, 168, 1, 10}, {255, 255, 255, 0}, {192, 168, 1, 1}, {0, 0, 0, 0}};
+  struct mx_net_status ns;
+  int st = mx_net_status(&ns) == 0 && ns.ip;
+  u32 now[NR_USE] = {0, st ? ns.ip : 0, st ? ns.mask : 0, st ? ns.gw : 0, st ? ns.dns : 0};
+  for (int r = NR_IP; r < NR_USE; r++) {
+    memcpy(ip[r], def[r], 4);
+    if (!addr_parse(cfg_get(net_key[r], ""), ip[r]) && now[r])
+      addr_of(now[r], ip[r]);
   }
-  mx_fio_write(fd, buf, (u32)n);
-  mx_fio_close(fd);
   ip_dirty = 0;
-  toast(N_INFO, "Network address saved", "Used from the next start", 0);
+}
+
+/* the manual set-up in use: the four addresses, then the mode (the kernel
+   applies them all a second after the last) */
+static void ip_save(void) {
+  for (int r = NR_IP; r < NR_USE; r++) {
+    char t[16];
+    if (r == NR_DNS && !(ip[r][0] | ip[r][1] | ip[r][2] | ip[r][3]))
+      t[0] = 0;
+    else
+      mx_snprintf(t, sizeof t, "%u.%u.%u.%u", ip[r][0], ip[r][1], ip[r][2], ip[r][3]);
+    cfg_set(net_key[r], t);
+  }
+  cfg_set("net.mode", "manual");
+  cfg_save();
+  ip_dirty = 0;
 }
 
 static int vrows(int *r);
@@ -86,9 +109,10 @@ static int nitems(void) {
     int r[16];
     return vrows(r);
   }
-  case P_NETWORK: return 4;
+  case P_NETWORK: return net_dhcp() ? 1 : NR_ROWS;
   case P_STORAGE: return st_n + 2;
   case P_PADS: return 1; /* pads.c has its own rows */
+  case P_TIME: return TR_ROWS;
   default: return 0;
   }
 }
@@ -274,9 +298,8 @@ void settings_pick(int n) {
 void settings_enter(void) {
   screen = SCR_SETTINGS;
   fam_of(video_choice(), &vfam, &vsub);
-  in_page = 0, item = 0, edit = 0, vlist = VL_MAIN;
-  if (!ip_loaded)
-    ip_load();
+  in_page = 0, item = 0, edit = 0, tedit = 0, vlist = VL_MAIN;
+  ip_load();
 }
 
 /* the rows of a page, as in the mockups: label left, value right, a line
@@ -474,30 +497,87 @@ static void page_video(float x0, float x1, float y) {
   }
 }
 
-static void page_network(float x0, float x1, float y) {
-  static const char *const names[3] = {"IP address", "Subnet mask", "Gateway"};
-  for (int i = 0; i < 3; i++) {
-    char v[24];
-    mx_snprintf(v, sizeof v, "%u.%u.%u.%u", ip[i][0], ip[i][1], ip[i][2], ip[i][3]);
-    int chosen = in_page && item == i;
-    row_line(x0, x1, y + ROW * i, names[i], v, chosen, 1);
-    if (chosen && edit) {
-      /* the number being changed: the lamp's line under it */
-      char part[24];
-      int b = edit - 1;
-      float px = x1 - d_text_w(FONT_BODY, v);
-      for (int k = 0; k < b; k++) {
-        mx_snprintf(part, sizeof part, "%u.", ip[i][k]);
-        px += d_text_w(FONT_BODY, part);
-      }
-      mx_snprintf(part, sizeof part, "%u", ip[i][b]);
-      float yy = y + ROW * i + 8;
-      d_rect(px, yy, px + d_text_w(FONT_BODY, part), yy + 2, argb(C_LAMP, 1), argb(C_LAMP, 1));
-    }
+/* an address at the right of a row; part (1-4) underlined while edited */
+static void addr_value(float x1, float y, const u8 *a, int chosen, int part) {
+  char v[24];
+  mx_snprintf(v, sizeof v, "%u.%u.%u.%u", a[0], a[1], a[2], a[3]);
+  float px = x1 - d_text_w(FONT_BODY, v);
+  d_text(FONT_BODY, px, y, v, argb(chosen ? C_WHITE : C_DIM, 1));
+  if (!part)
+    return;
+  char t[24];
+  for (int k = 0; k < part - 1; k++) {
+    mx_snprintf(t, sizeof t, "%u.", a[k]);
+    px += d_text_w(FONT_BODY, t);
   }
-  row_line(x0, x1, y + ROW * 3, ip_dirty ? "Save" : "Saved", 0, in_page && item == 3, ip_dirty);
-  row_note(x0, y + ROW * 4, "The kernel reads these when it starts.");
-  row_note(x0, y + ROW * 4 + 26, "Automatic (DHCP) and the status come with the OS's network calls.");
+  mx_snprintf(t, sizeof t, "%u", a[part - 1]);
+  d_rect(px, y + 8, px + d_text_w(FONT_BODY, t), y + 10, argb(C_LAMP, 1), argb(C_LAMP, 1));
+}
+
+static void page_network(float x0, float x1, float y) {
+  struct mx_net_status ns;
+  int have = mx_net_status(&ns) == 0 && ns.up, dhcp = net_dhcp();
+  /* the status */
+  char v[64], sub[64];
+  if (!have)
+    mx_snprintf(v, sizeof v, "Not started");
+  else if (!ns.link)
+    mx_snprintf(v, sizeof v, "No cable");
+  else
+    mx_snprintf(v, sizeof v, "Connected" DOT "%u Mbit/s%s", ns.speed, ns.duplex ? ", full duplex" : "");
+  sub[0] = 0;
+  if (have)
+    mx_snprintf(sub, sizeof sub, "MAC %02x:%02x:%02x:%02x:%02x:%02x", ns.mac[0], ns.mac[1], ns.mac[2], ns.mac[3],
+                ns.mac[4], ns.mac[5]);
+  vrow(x0, x1, y, "Status", have ? sub : "The network driver is not there", 0);
+  d_text(FONT_BODY, x1 - d_text_w(FONT_BODY, v), y, v, argb(have && ns.link ? C_LAMP : C_DIM, 1));
+
+  /* how the address is set */
+  float yy = y + ROW;
+  int chosen = in_page && item == NR_MODE;
+  if (dhcp && have && ns.dhcp == MX_NET_DHCP_BOUND && ns.lease) {
+    u32 h = ns.lease / 3600, m = ns.lease / 60 % 60;
+    if (h)
+      mx_snprintf(sub, sizeof sub, "From the network (DHCP)" DOT "%u h %u min left", h, m);
+    else
+      mx_snprintf(sub, sizeof sub, "From the network (DHCP)" DOT "%u min left", m);
+  } else if (dhcp)
+    mx_snprintf(sub, sizeof sub, "%s", have && ns.dhcp == MX_NET_DHCP_SEARCHING ? "Asking the network for one"
+                                                                                 : "From the network (DHCP)");
+  else
+    mx_snprintf(sub, sizeof sub, "Set here");
+  static const char *const l[2] = {"Automatic", "Manual"};
+  vrow(x0, x1, yy, "Address", sub, chosen);
+  row_seg(x1, yy, l, 2, !dhcp, chosen);
+
+  /* the addresses: in use (automatic), or the ones set here */
+  static const char *const names[NR_USE] = {0, "IP address", "Subnet mask", "Gateway", "DNS server"};
+  for (int r = NR_IP; r < NR_USE; r++) {
+    yy += ROW;
+    chosen = in_page && !dhcp && item == r;
+    vrow(x0, x1, yy, names[r], 0, chosen);
+    if (dhcp) {
+      u32 a = !have ? 0 : r == NR_IP ? ns.ip : r == NR_MASK ? ns.mask : r == NR_GW ? ns.gw : ns.dns;
+      u8 o[4];
+      addr_of(a, o);
+      if (a)
+        addr_value(x1, yy, o, 0, 0);
+      else
+        d_text(FONT_BODY, x1 - d_text_w(FONT_BODY, "None"), yy, "None", argb(C_FAINT, 1));
+    } else
+      addr_value(x1, yy, ip[r], chosen, chosen && edit ? edit : 0);
+  }
+  yy += ROW;
+  if (!dhcp) {
+    chosen = in_page && item == NR_USE;
+    const char *u = ip_dirty ? "Use these addresses" : "In use";
+    float mid = yy - text_mid(FONT_BODY);
+    if (chosen)
+      d_highlight(x0 - 18, mid - 26, x1 + 18, mid + 26, 10, 0.07f, 0.03f, 0.5f);
+    d_text(FONT_BODY, x0, yy, u, argb(ip_dirty ? C_WHITE : C_FAINT, 1));
+    yy += ROW;
+  }
+  row_note(x0, yy - 20, dhcp ? "A PC's link (ps2client) uses the address above." : "A new address is used a second after it is set.");
 }
 
 /* ---- Storage: the kernel's devices, the swap file, games from the PC ---- */
@@ -592,6 +672,158 @@ void settings_goto(int pg, int swap_row) {
   screen = SCR_SETTINGS;
 }
 
+/* ---- Date and time (kernel version 29): the date and time set (also the
+   PS2's clock), the zone, summer time, the clock's format ---- */
+
+static int zone_index(void) {
+  int z = clock_zone(), best = 0;
+  for (int i = 0; i < clock_nzones; i++)
+    if (clock_zones[i].min <= z)
+      best = i;
+  return best;
+}
+
+static void zone_text(int min, char *s, u32 n) {
+  int a = min < 0 ? -min : min;
+  mx_snprintf(s, n, "UTC%c%02d:%02d", min < 0 ? '-' : '+', a / 60, a % 60);
+}
+
+/* the date and time at the right of a row: "Mon 16 Nov 2026  14:05", the
+   field being changed underlined */
+static void date_value(float x1, float y, const struct mx_tm *tm, int chosen, int field) {
+  char p[6][16];
+  int f[6] = {0, TF_DAY, TF_MONTH, TF_YEAR, TF_HOUR, TF_MINUTE};
+  mx_snprintf(p[0], 16, "%s ", clock_wday[clock_weekday(tm->year, tm->month, tm->day)]);
+  mx_snprintf(p[1], 16, "%u", tm->day);
+  mx_snprintf(p[2], 16, "%s", clock_month[tm->month - 1]);
+  mx_snprintf(p[3], 16, "%u", tm->year);
+  int h12 = !clock_24h();
+  mx_snprintf(p[4], 16, "%u", h12 ? (tm->hour % 12 ? tm->hour % 12 : 12) : tm->hour);
+  mx_snprintf(p[5], 16, "%02u%s", tm->minute, h12 ? (tm->hour < 12 ? " AM" : " PM") : "");
+  static const char *const gap[6] = {"", " ", " ", " ", "   ", ":"}; /* before each part */
+  float w = 0;
+  for (int i = 0; i < 6; i++)
+    w += d_text_w(FONT_BODY, gap[i]) + d_text_w(FONT_BODY, p[i]);
+  float x = x1 - w;
+  u32 c = argb(chosen ? C_WHITE : C_DIM, 1);
+  for (int i = 0; i < 6; i++) {
+    x = d_text(FONT_BODY, x, y, gap[i], c);
+    float x2 = d_text(FONT_BODY, x, y, p[i], c);
+    if (field && f[i] == field) {
+      float uw = i == 5 && h12 ? d_text_w(FONT_BODY, "00") : x2 - x;
+      d_rect(x, y + 8, x + uw, y + 10, argb(C_LAMP, 1), argb(C_LAMP, 1));
+    }
+    x = x2;
+  }
+}
+
+static void page_time(float x0, float x1, float y) {
+  struct mx_tm now;
+  int known = clock_now(&now) == 0;
+  int chosen = in_page && item == TR_DATE;
+  if (tedit)
+    vrow(x0, x1, y, "Date and time", "Being set", chosen);
+  else
+    vrow(x0, x1, y, "Date and time", known ? 0 : "Not known: set it", chosen);
+  if (tedit)
+    date_value(x1, y, &tset, 1, tedit);
+  else if (known)
+    date_value(x1, y, &now, chosen, 0);
+  else
+    vvalue(x0, x1, y, "Not set", chosen, 0);
+
+  float yy = y + ROW;
+  int zi = zone_index();
+  char z[16];
+  zone_text(clock_zones[zi].min, z, sizeof z);
+  chosen = in_page && item == TR_ZONE;
+  vrow(x0, x1, yy, "Time zone", clock_zones[zi].place, chosen);
+  d_text(FONT_BODY, x1 - d_text_w(FONT_BODY, z), yy, z, argb(chosen ? C_WHITE : C_DIM, 1));
+
+  yy += ROW;
+  chosen = in_page && item == TR_DST;
+  vrow(x0, x1, yy, "Summer time", "An hour later", chosen);
+  row_seg(x1, yy, seg_onoff, 2, !clock_dst(), chosen);
+
+  yy += ROW;
+  static const char *const fmt[2] = {"24-hour", "12-hour"};
+  chosen = in_page && item == TR_FORMAT;
+  vrow(x0, x1, yy, "Clock", 0, chosen);
+  row_seg(x1, yy, fmt, 2, !clock_24h(), chosen);
+  row_note(x0, yy + ROW - 20, "The PS2's own clock keeps the time, also when it is off.");
+}
+
+static void time_set(void) {
+  tset.second = 0;
+  if (mx_time_set(clock_utc_of(&tset)) < 0)
+    toast(N_WARN, "Time not set", "The PS2's clock could not be written", 1);
+}
+
+/* the date and time being set: left and right choose a field, up and down
+   change it, cross sets it, circle leaves it */
+static void time_edit_input(u32 p) {
+  if (p & MX_PAD_LEFT && tedit > TF_DAY)
+    tedit--;
+  if (p & MX_PAD_RIGHT && tedit < TF_MINUTE)
+    tedit++;
+  int d = 0;
+  if (pad_held & MX_PAD_UP && (p & MX_PAD_UP || ticks % 4 == 0))
+    d = 1;
+  if (pad_held & MX_PAD_DOWN && (p & MX_PAD_DOWN || ticks % 4 == 0))
+    d = -1;
+  if (d) {
+    int y = tset.year, m = tset.month, dd = tset.day, h = tset.hour, mi = tset.minute;
+    switch (tedit) {
+    case TF_DAY: dd = (dd - 1 + d + clock_mdays(y, m)) % clock_mdays(y, m) + 1; break;
+    case TF_MONTH: m = (m - 1 + d + 12) % 12 + 1; break;
+    case TF_YEAR: y = y + d < 2000 ? 2099 : y + d > 2099 ? 2000 : y + d; break;
+    case TF_HOUR: h = (h + d + 24) % 24; break;
+    case TF_MINUTE: mi = (mi + d + 60) % 60; break;
+    }
+    if (dd > clock_mdays(y, m))
+      dd = clock_mdays(y, m);
+    tset.year = (u16)y, tset.month = (u8)m, tset.day = (u8)dd, tset.hour = (u8)h, tset.minute = (u8)mi;
+  }
+  if (p & MX_PAD_CROSS)
+    time_set(), tedit = 0;
+  if (p & MX_PAD_CIRCLE)
+    tedit = 0;
+}
+
+static void time_input(u32 p) {
+  int d = p & MX_PAD_RIGHT ? 1 : p & MX_PAD_LEFT ? -1 : 0, x = p & MX_PAD_CROSS;
+  switch (item) {
+  case TR_DATE:
+    if (x) {
+      if (clock_now(&tset) < 0) {
+        memset(&tset, 0, sizeof tset);
+        tset.year = 2026, tset.month = 1, tset.day = 1, tset.hour = 12;
+      }
+      tedit = TF_DAY;
+    }
+    break;
+  case TR_ZONE:
+    if (d) {
+      int i = zone_index() + d;
+      if (i >= 0 && i < clock_nzones) {
+        char v[8];
+        mx_snprintf(v, sizeof v, "%d", clock_zones[i].min);
+        cfg_set("time.zone", v);
+        cfg_save();
+      }
+    }
+    break;
+  case TR_DST:
+    if (d || x)
+      toggle("time.dst", "on", "off", "off");
+    break;
+  case TR_FORMAT:
+    if (d || x)
+      toggle("clock.format", "12", "24", "24");
+    break;
+  }
+}
+
 static void page_system(float x0, float x1, float y) {
   row_line(x0, x1, y, "Shell", "MXSHELL2 0.2", 0, 1);
   char v[64] = "Not there";
@@ -669,6 +901,7 @@ void settings_draw(void) {
   case P_NETWORK: page_network(x0, x1, y); break;
   case P_STORAGE: page_storage(x0, x1, y); break;
   case P_PADS: pads_draw(x0, x1, y + 28, in_page, 0); break;
+  case P_TIME: page_time(x0, x1, y); break;
   default: page_system(x0, x1, y); break;
   }
 
@@ -679,6 +912,8 @@ void settings_draw(void) {
   static const char *const h_try[] = {"L R", "Choose", SYM_CROSS, "Try it", SYM_CIRCLE, "Back", 0};
   static const char *const h_test[] = {"L R", "On, off", SYM_CROSS, "Test frame", SYM_CIRCLE, "Back", 0};
   static const char *const h_open[] = {SYM_CROSS, "Open", SYM_CIRCLE, "Back", 0};
+  static const char *const h_choose[] = {"L R", "Choose", SYM_CIRCLE, "Back", 0};
+  static const char *const h_tedit[] = {"L R", "Field", "UP DOWN", "Change", SYM_CROSS, "Set", SYM_CIRCLE, "Cancel", 0};
   const char *const *h_video = h_page;
   if (in_page && page == P_VIDEO) {
     int r[16], n = vrows(r), w = n > 0 ? r[item < n ? item : n - 1] : -1;
@@ -699,8 +934,11 @@ void settings_draw(void) {
              "No: keep it on");
   else
     hints_draw(edit ? h_edit
+               : tedit ? h_tedit
+               : in_page && page == P_TIME && (item == TR_ZONE || item == TR_DST || item == TR_FORMAT) ? h_choose
                : in_page && page == P_PADS ? pads_hints("Back")
                : in_page && page == P_VIDEO ? h_video
+               : in_page && page == P_NETWORK && item == NR_MODE ? h_choose
                : in_page ? h_page
                          : h_list);
   status_draw();
@@ -858,6 +1096,10 @@ void settings_input(void) {
       screen = SCR_HOME;
     return;
   }
+  if (tedit) {
+    time_edit_input(p);
+    return;
+  }
   if (edit) {
     /* a number of an address: left and right choose, up and down change it */
     u8 *v = &ip[item][edit - 1];
@@ -886,7 +1128,30 @@ void settings_input(void) {
     video_input(p);
     return;
   }
+  if (page == P_TIME && (p & (MX_PAD_RIGHT | MX_PAD_CROSS) || (p & MX_PAD_LEFT && item != TR_DATE))) {
+    time_input(p);
+    return;
+  }
 
+  if (page == P_NETWORK && item == NR_MODE && p & (MX_PAD_LEFT | MX_PAD_RIGHT | MX_PAD_CROSS)) {
+    /* Automatic, or Manual with the addresses in use now (the address
+       stays until it is changed here) */
+    int manual = p & MX_PAD_CROSS ? net_dhcp() : !!(p & MX_PAD_RIGHT);
+    if (manual == !net_dhcp())
+      return;
+    if (manual) {
+      struct mx_net_status ns;
+      if (mx_net_status(&ns) == 0 && ns.ip) {
+        addr_of(ns.ip, ip[NR_IP]), addr_of(ns.mask, ip[NR_MASK]), addr_of(ns.gw, ip[NR_GW]);
+        addr_of(ns.dns, ip[NR_DNS]);
+      }
+      ip_save();
+    } else {
+      cfg_set("net.mode", "dhcp");
+      cfg_save();
+    }
+    return;
+  }
   if (page == P_STORAGE && item == st_n && p & (MX_PAD_LEFT | MX_PAD_RIGHT)) {
     /* the swap file's device: none, then the drives it may go on */
     int d = p & MX_PAD_RIGHT ? 1 : -1, at = st_pick;
@@ -908,9 +1173,9 @@ void settings_input(void) {
     return;
   switch (page) {
   case P_NETWORK:
-    if (item < 3)
+    if (item >= NR_IP && item < NR_USE)
       edit = 1;
-    else if (ip_dirty)
+    else if (item == NR_USE && ip_dirty)
       ip_save();
     break;
   case P_STORAGE:

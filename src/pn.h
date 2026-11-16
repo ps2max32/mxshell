@@ -275,7 +275,25 @@ void hub_input(void);
 void settings_draw(void);
 void settings_input(void);
 void settings_enter(void);
-enum { P_VIDEO, P_NETWORK, P_STORAGE, P_PADS, P_SYSTEM, NPAGES };
+enum { P_VIDEO, P_NETWORK, P_STORAGE, P_PADS, P_TIME, P_SYSTEM, NPAGES };
+/* the date and time (clock.c, kernel version 29) */
+struct mx_tm;
+struct clock_zone {
+  int min; /* east of UTC */
+  const char *place;
+};
+extern const struct clock_zone clock_zones[];
+extern const int clock_nzones;
+extern const char *const clock_month[12], *const clock_wday[7];
+int clock_zone(void);  /* time.zone */
+int clock_dst(void);   /* time.dst on */
+int clock_24h(void);   /* clock.format 24 (the default) */
+int clock_mdays(int year, int month);
+int clock_weekday(int year, int month, int day); /* 0 Sunday */
+long long clock_utc_of(const struct mx_tm *local); /* the zone's and summer time's offset taken off */
+int clock_now(struct mx_tm *tm);                   /* the local time; -1 if not known */
+void clock_hm(const struct mx_tm *tm, char *s, unsigned n); /* "14:05" or "2:05 PM" */
+int clock_text(char *s, unsigned n);                 /* the clock now; -1 if not known */
 void settings_goto(int page, int swap_row); /* a page open (a notification's action) */
 void video_apply(void);
 void boot_draw(void);

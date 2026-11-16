@@ -32,13 +32,16 @@ What it does now (PLAN.md, phase A):
   own picture: colour, dithering, the flicker filter. Without a setting the region's 480i or
   576i. A new mode or output stays only when kept within 15 s (`video.confirm`, and the mode
   goes into `video.allowed`); else the shell, or the kernel, puts the kept one back. L1 + L2 +
-  R1 + R2 held in the first 30 s after the start sets the region's mode (the kernel's)), Network (`mc0:/MXOS/IPCONFIG.DAT`, used from the kernel's next start),
+  R1 + R2 held in the first 30 s after the start sets the region's mode (the kernel's)), Network (kernel version 30: the status, link, speed, MAC, the DHCP lease; the address automatic (DHCP) or set by hand: the settings `net.mode`, `net.ip`, `net.mask`, `net.gw`, `net.dns`, which the kernel uses a second later),
   Storage (the kernel's devices with size, free space where known, games and the swap file;
   cross on one: ready to remove; where MXOS's swap file is, or none; games from the PC),
   Controllers (kernel version 28, `src/pads.c`: the pads connected, each with its player, kind,
   link, battery and light bar, cross opens its own page (state, light bar colour, motors,
   disconnect, forget); under them what is for all controllers: pairing over Bluetooth, the light
   bars' brightness, turning idle Bluetooth pads off, the paired pads not there),
+  Date and time (kernel version 29: the date and time set, also in the PS2's clock; the zone,
+  `time.zone`, and summer time, `time.dst`; the clock 24- or 12-hour, `clock.format`; the clock
+  in the top bar when the time is known: not on PCSX2),
   System (the shell, the kernel's version, `SERVICES.CFG`).
 - **Files** (`files/`, an app in Apps: `make files` makes `PS2MAX/files/` with `FILES.ELF` and its
   `game.ini`, for a device's `PS2MAX/`): the devices the kernel lists and the PC (host:);
