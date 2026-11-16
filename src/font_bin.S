@@ -45,3 +45,19 @@ font_ntscw_z_end:
 font_palw_z:
 	.incbin "font_palw.z"
 font_palw_z_end:
+	.globl font_p240_z, font_p240_z_end
+font_p240_z:
+	.incbin "font_p240.z"
+font_p240_z_end:
+	.globl font_p288_z, font_p288_z_end
+font_p288_z:
+	.incbin "font_p288.z"
+font_p288_z_end:
+	.globl font_p240w_z, font_p240w_z_end
+font_p240w_z:
+	.incbin "font_p240w.z"
+font_p240w_z_end:
+	.globl font_p288w_z, font_p288w_z_end
+font_p288w_z:
+	.incbin "font_p288w.z"
+font_p288w_z_end:

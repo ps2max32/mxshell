@@ -29,6 +29,10 @@ Z(p576w)
 Z(p480w)
 Z(ntscw)
 Z(palw)
+Z(p240)
+Z(p288)
+Z(p240w)
+Z(p288w)
 #undef Z
 static const struct {
   const unsigned char *z, *z_end; /* zlib */
@@ -38,7 +42,8 @@ static const struct {
 #define A(S, n, N) [SHAPE_##S] = {font_##n##_z, font_##n##_z_end, fonts_##n, FONT_##N##_W, FONT_##N##_H}
     A(HD, hd, HD), A(HD540, hd540, HD540), A(P720, p720, P720), A(P576, p576, P576), A(P480, p480, P480),
     A(NTSC, ntsc, NTSC), A(PAL, pal, PAL), A(P576W, p576w, P576W), A(P480W, p480w, P480W),
-    A(NTSCW, ntscw, NTSCW), A(PALW, palw, PALW),
+    A(NTSCW, ntscw, NTSCW), A(PALW, palw, PALW), A(P240, p240, P240), A(P288, p288, P288),
+    A(P240W, p240w, P240W), A(P288W, p288w, P288W),
 #undef A
 };
 static GLuint font_tex;

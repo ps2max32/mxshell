@@ -10,11 +10,17 @@
      sec=<n>         start in that section (0 Games .. 4 Settings)
      walk            (tests) the focus a tile on every 20 frames, there and back
      refl=a|b|c      (tests) the reflection's look
+     mode=<video.mode>  (tests) video.mode for this run: 240p, 288p, 480i, 576i,
+                        480p, 576p, 720p, 720p50, 1080i, 1080i50, 1080p24/25/30
      aspect=4:3|16:9 the television's shape in the SD modes
-     deflicker=on|off the flicker filter in NTSC and PAL
+     deflicker=on|off the flicker filter in 480i and 576i
      hubk=<percent>  (tests) with screen=hub: the way in held there
      pick=<n>        (tests) with screen=settings: row n of the first page chosen
      page=<n>        (tests) Settings' page n open (2 Storage)
+     vlist=<n>       (tests) with page=0: Video's list n open (1 the shell's
+                     picture, 2 the modes this TV shows)
+     overscan        (tests) the overscan test's picture to host:overscan.tga,
+                     at once back (with page=0 pick=4 press=<frame>:x)
      room=vu         (tests) the room's lights on VU1 (room.vsm), not the EE
      stats           (tests) libgl's counters
      end=<frames>    (tests) the end marker after that many frames
@@ -22,7 +28,11 @@
      note            a notification on the screen
      launch          start the game in focus at once (tests)
      shot=<frames>   the picture to host:mxshell.tga after that many frames,
-                     then the end marker */
+                     then the end marker
+     press=<frame>:<buttons>   (tests) buttons pressed at that frame (up to 8
+                     of these): r l u d x o t s (right left up down cross
+                     circle triangle square), 1 2 (L1 R1), h (home)
+     noteat=<frame>  (tests) a notification at that frame */
 #include <GL/gl.h>
 #include <mx/debug.h>
 #include <mx/frame.h>
@@ -211,14 +221,14 @@ static int game_wait(int id) {
 /* the shell gives the game the GS, the pad's ports and as much memory as
    can be given: the covers go, and libgl gives back its arenas, beam
    racing's records and the rest it holds (mxgl_suspend stops the pipeline) */
-static void shell_away(void) {
+void shell_away(void) {
   games_textures_free();
   mxgl_suspend();
 }
 
 /* and takes them back: libgl's memory (if the game's memory is not back
    yet, a while later), the mode as set, the pads, the covers */
-static void shell_back(void) {
+void shell_back(void) {
   mxgl_resume();
   for (int i = 0; mxgl_suspended() && i < 50; i++)
     mx_sleep_us(100000), mxgl_resume();
@@ -334,6 +344,8 @@ static void news(void) {
   if (ev_settings) { /* the kernel's own changes (swap.path, ...) */
     ev_settings = 0;
     cfg_refresh();
+    video_follow(); /* the kernel put a mode back (no confirm, L1 L2 R1 R2) */
+    video_trial_check();
   }
 }
 
@@ -396,8 +408,35 @@ static int args_from_host(char ***argv) {
 static const char *switch_to;
 static u32 switch_every = 90;
 
+/* tests: buttons pressed at a frame (with shot=, an animation frame by
+   frame: each frame is the same in every run, frame_dt being fixed) */
+static struct {
+  u32 at, buttons;
+} presses[8];
+static int npresses;
+static u32 note_at;
+
+static u32 press_mask(const char *s) {
+  u32 m = 0;
+  for (; *s; s++)
+    switch (*s) {
+    case 'r': m |= MX_PAD_RIGHT; break;
+    case 'l': m |= MX_PAD_LEFT; break;
+    case 'u': m |= MX_PAD_UP; break;
+    case 'd': m |= MX_PAD_DOWN; break;
+    case 'x': m |= MX_PAD_CROSS; break;
+    case 'o': m |= MX_PAD_CIRCLE; break;
+    case 't': m |= MX_PAD_TRIANGLE; break;
+    case 's': m |= MX_PAD_SQUARE; break;
+    case '1': m |= MX_PAD_L1; break;
+    case '2': m |= MX_PAD_R1; break;
+    case 'h': m |= MX_PAD_HOME; break;
+    }
+  return m;
+}
+
 int main(int argc, char **argv) {
-  int page_arg = -1;
+  int page_arg = -1, vlist_arg = 0;
   int shot = 0, right = 0, note = 0, start = SCR_BOOT, go = 0, stats = 0, end = 0, walk = 0, pick = -1;
   cfg_load();
   /* the kernel's events: a game's end, the home button, the hints (none
@@ -445,6 +484,10 @@ int main(int argc, char **argv) {
       page_arg = atoi(a + 5), start = SCR_SETTINGS;
     else if (!strncmp(a, "pick=", 5))
       pick = atoi(a + 5);
+    else if (!strncmp(a, "vlist=", 6))
+      vlist_arg = atoi(a + 6);
+    else if (!strcmp(a, "overscan"))
+      overscan_shot = 1;
     else if (!strcmp(a, "walk"))
       walk = 1;
     else if (!strcmp(a, "stats"))
@@ -461,6 +504,12 @@ int main(int argc, char **argv) {
       go = 1, start = SCR_HOME;
     else if (!strcmp(a, "note"))
       note = 1;
+    else if (!strncmp(a, "press=", 6) && npresses < 8) {
+      const char *c = strchr(a, ':');
+      presses[npresses].at = (u32)atoi(a + 6);
+      presses[npresses++].buttons = c ? press_mask(c + 1) : 0;
+    } else if (!strncmp(a, "noteat=", 7))
+      note_at = (u32)atoi(a + 7);
     else if (!strcmp(a, "dev=hostonly"))
       cfg_arg("dev.host", "1"), host_only = 1;
     else if (!strncmp(a, "hubk=", 5)) {
@@ -496,21 +545,7 @@ int main(int argc, char **argv) {
   mxgl_init();
   mxgl_show_stats = stats;
   pad_on = mx_pad_init() >= 0;
-  /* Start + Select held at power-on: the console's own SD mode, for a
-     television that cannot show the one set */
-  if (pad_on) {
-    u32 held = 0;
-    for (int i = 0; i < 20 && !held; i++) {
-      mx_sleep_us(25000);
-      held = (mx_pad_buttons(0) | mx_pad_buttons(1)) & (MX_PAD_START | MX_PAD_SELECT);
-    }
-    if (held == (MX_PAD_START | MX_PAD_SELECT)) {
-      cfg_set("video.mode", "sd");
-      cfg_save();
-    }
-  }
   video_apply();
-  frame_dt = mxgl_mode() == MXGL_PAL ? 1.0f / 50 : 1.0f / 60;
   dev_seen = pdevs_gen();
   games_search();
   if (note) {
@@ -521,6 +556,11 @@ int main(int argc, char **argv) {
   for (;;) {
     ticks++;
     read_pad();
+    for (int i = 0; i < npresses; i++)
+      if (presses[i].at == ticks)
+        pad_pressed |= presses[i].buttons, pad_held |= presses[i].buttons;
+    if (note_at && ticks == note_at)
+      toast(N_PAD, "Controller connected", "DualShock 4" DOT "Bluetooth" DOT "player 2", 0);
     /* the covers of a device as soon as its games are found, not after the
        devices after it (an HDD that is not there takes 10 s to give up on) */
     static int covered;
@@ -545,6 +585,8 @@ int main(int argc, char **argv) {
           settings_enter();
           if (page_arg >= 0)
             settings_goto(page_arg, 0);
+          if (vlist_arg)
+            settings_vlist(vlist_arg);
           if (pick >= 0) {
             void settings_pick(int n);
             settings_pick(pick);

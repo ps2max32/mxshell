@@ -21,11 +21,18 @@ What it does now (PLAN.md, phase A):
   cross Resume, square Close, the home button back to it); starting another game closes the
   paused one first. Back from the game the shelf comes out of the dark; a game that ended with
   a status other than 0 leaves a notification (a crash is the kernel's).
-- **Settings** (the last section, its own screen: the pages in a list, L1 back to Apps): Video (a family of modes, 1080, 720p, 480p/576p or NTSC/PAL, and under it the frame rate or
-  standard, colour, dithering, television and flicker filter where they apply; without a setting
-  the console's own mode, PAL or NTSC; a new mode
-  stays only when kept within 15 s, and Start + Select held at power-on goes back to the
-  console's own SD mode), Network (`mc0:/MXOS/IPCONFIG.DAT`, used from the kernel's next start),
+- **Settings** (the last section, its own screen: the pages in a list, L1 back to Apps): Video (kernel version 31, the system's
+  settings of `<mx/screen.h>`: the mode as four cards, 1080 (60i, 50i, 24p, 25p, 30p), 720p (60, 50),
+  480p/576p and 480i/576i/240p/288p, and under it the standard (720p50, 1080i50 and the 1080p modes
+  have the kernel's own timing: not on PCSX2, and new on TVs, so their trial matters; 240p and 288p
+  draw the shell on 224 or 256 lines, its text cramped); the output, component or RGB (480i, 576i,
+  240p and 288p only); the TV's shape and overscan,
+  with a test frame of the whole 704-pixel picture; how programs are shown, stretched to the
+  mode or in one of their own; the modes this TV shows, a list to take one off; the shell's
+  own picture: colour, dithering, the flicker filter. Without a setting the region's 480i or
+  576i. A new mode or output stays only when kept within 15 s (`video.confirm`, and the mode
+  goes into `video.allowed`); else the shell, or the kernel, puts the kept one back. L1 + L2 +
+  R1 + R2 held in the first 30 s after the start sets the region's mode (the kernel's)), Network (`mc0:/MXOS/IPCONFIG.DAT`, used from the kernel's next start),
   Storage (the kernel's devices with size, free space where known, games and the swap file;
   cross on one: ready to remove; where MXOS's swap file is, or none; games from the PC),
   Controllers (kernel version 28, `src/pads.c`: the pads connected, each with its player, kind,
@@ -76,7 +83,7 @@ What it does now (PLAN.md, phase A):
 The games are where mxshell finds them, `<device>/PS2MAX/<game>/game.ini`
 (`apps/mxshell/package-games.sh` makes them): on the devices the kernel lists but the memory
 cards (USB `usb0:`, the internal HDD `ata0:`), and `host:` when Settings > Storage turns it on.
-The shell needs kernel version 27. Its settings (`video.*`, `dev.host`) are in the kernel's
+The shell needs kernel version 31. Its settings (`video.*`, `dev.host`) are in the kernel's
 settings store (`<mx/setting.h>`), which the kernel writes to the memory card; the shell's test
 arguments (`mode=`, `rgb16`, ...) only change them for that run.
 
@@ -103,13 +110,14 @@ make usbcopy      # tools/usbcopy.c: files to and from the USB stick through the
 ```
 
 Arguments (for tests): `dev=host`, `dev=hostonly`, `screen=home|hub|settings`, `sec=<n>` (the section, 0 Games .. 4 Settings), `right=<n>`,
-`note`, `launch` (start the game in focus at once), `mode=1080i|ntsc|pal|sd`, `rgb16`,
+`note`, `launch` (start the game in focus at once), `mode=<video.mode>` (one of 240p, 288p, 480i, 576i, 480p, 576p, 720p, 720p50, 1080i, 1080i50, 1080p24, 1080p25, 1080p30), `rgb16`,
 `shot=<frames>` (the picture to
 `host:mxshell.tga`, then the end marker), `end=<frames>` (the end marker after that many
 frames), `stats` (libgl's counters on the screen and once a second in the log), `walk` (the
 focus a tile on every 20 frames, there and back: Home's busiest frames), `switch=<mode>,...`
 and `every=<frames>` (the modes one after the other), `refl=a|b|c` (three other looks of the
-reflections, to compare), `room=vu` (the room's lights on VU1, `src/room.vsm`). The standalone
+reflections, to compare), `vlist=1|2` (with `page=0`: Video's lists open), `overscan` (the
+overscan test's picture to `host:overscan.tga`, with `page=0 pick=4 press=<frame>:x`), `room=vu` (the room's lights on VU1, `src/room.vsm`). The standalone
 build reads them from `host:mxshell.txt`.
 
 Measured on a PS2 in 1080i (`stats walk`): Home, Hub and Settings keep 60 fps (50 in PAL),
@@ -126,9 +134,9 @@ the program and the games in `build/pcsx2-test`: `MXLOAD="host:mxshellk.elf dev=
 ## Video modes and drawing
 
 Layout is in units that are square on the screen: 720 high, 1280 wide at 16:9 (1080i, 1.5
-pixels a unit) and 960 wide at 4:3 (NTSC and PAL, whose pixels are not square: each axis has
-its own scale). The SD modes (NTSC, PAL, 480p, 576p) can be 16:9 too (Settings › Video ›
-Television, `video.aspect`): anamorphic, 1280 units across the same 640 pixels. Text comes from
+pixels a unit) and 960 wide at 4:3 (480i and 576i, whose pixels are not square: each axis has
+its own scale). The 480 and 576 modes can be 16:9 too (Settings › Video ›
+TV shape, `video.aspect`): anamorphic, 1280 units across the same 640 pixels. Text comes from
 an atlas per shape of pixel (`font/font_hd.z`, `font_ntsc.z`, `font_ntscw.z` for NTSC at
 16:9, ...; zlib, 1.3 MB in all packed to 0.33 MB, the mode's one unpacked when it is set), its
 glyphs made for those pixels and drawn 1:1, filtered bilinearly (beam racing

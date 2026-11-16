@@ -19,10 +19,16 @@
 extern float scr_w; /* 1280 or 960 */
 /* the video modes (settings.c has their table) and the shapes of their
    pixels (font.c: an atlas each) */
-enum { VM_1080I, VM_1080I50, VM_1080P30, VM_1080P25, VM_720P, VM_720P50, VM_576P, VM_480P, VM_NTSC, VM_PAL, VM_MODES };
+enum { VM_240P, VM_288P, VM_480I, VM_576I, VM_480P, VM_576P, VM_720P, VM_720P50, VM_1080I, VM_1080I50,
+       VM_1080P24, VM_1080P25, VM_1080P30, VM_MODES };
+#define VM_HD(m) ((m) >= VM_720P)                     /* 16:9 always, no overscan */
+#define VM_LOW(m) ((m) == VM_240P || (m) == VM_288P)  /* half the lines of 480i, 576i */
+#define VM_RGB(m) ((m) <= VM_576I)                    /* the modes RGB carries */
 enum { SHAPE_HD, SHAPE_HD540, SHAPE_P720, SHAPE_P576, SHAPE_P480, SHAPE_NTSC, SHAPE_PAL,
        /* the SD modes at 16:9 (video.aspect): anamorphic, 1280 units across 640 pixels */
-       SHAPE_P576W, SHAPE_P480W, SHAPE_NTSCW, SHAPE_PALW };
+       SHAPE_P576W, SHAPE_P480W, SHAPE_NTSCW, SHAPE_PALW,
+       /* 240p, 288p: half the lines of NTSC and PAL, 4:3 and 16:9 */
+       SHAPE_P240, SHAPE_P288, SHAPE_P240W, SHAPE_P288W };
 extern int video_mode, video_shape;
 /* the modes (video.c): the setting's key, its name, libgl's mode, the
    shape of its pixels (the font atlas), 16:9, frames a second */
@@ -31,7 +37,17 @@ struct vmode {
   int gl, shape, wide, hz;
 };
 extern const struct vmode vmodes[VM_MODES];
-int video_choice(void);    /* video.mode; without it the console's own, PAL or NTSC */
+struct mx_screen_conf;
+void video_conf(struct mx_screen_conf *c); /* <mx/screen.h>'s, over the shell's copy of the store */
+int video_of_screen(u32 mode);             /* VM_* of an MX_SCREEN_* mode */
+int video_choice(void);    /* video.mode as the kernel uses it; without it the region's 480i or 576i */
+void video_follow(void);   /* the mode again if the video settings changed (MX_EVENT_SETTING) */
+void video_trial_check(void); /* settings.c: the trial ends when the kernel put the mode back */
+int overscan_test(void);   /* overscan.c: the test frame until a button is pressed */
+extern int overscan_shot; /* tests: its picture saved, no wait */
+void settings_vlist(int l); /* tests: a list of the Video page open */
+void shell_away(void);     /* main.c: libgl and the covers put aside (a game, the overscan test) */
+void shell_back(void);     /* and taken back */
 int video_sd_wide(void);   /* video.aspect 16:9 (the SD modes) */
 int video_deflicker(void); /* video.deflicker (NTSC, PAL) */
 extern float px_x, px_y; /* pixels a unit, across and down */

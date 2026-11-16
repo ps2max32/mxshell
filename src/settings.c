@@ -1,5 +1,7 @@
 /* MXSHELL2: Settings, with what the OS offers today (PLAN.md, phase A):
-     Video        the shell's mode: the console's own, NTSC or PAL (libgl's modes)
+     Video        the system's video settings (kernel version 31): the mode
+                  (tried for 15 s), the output, the TV's shape, overscan,
+                  how programs are shown; the shell's own picture
      Network      IPCONFIG.DAT on the card: the kernel reads it at its start
      Storage      the devices (the kernel's list), ejecting one, the swap file
      Controllers  which ports have a pad; the motors tried
@@ -11,6 +13,7 @@
 #include <mx/dev.h>
 #include <mx/kernel.h>
 #include <mx/pad.h>
+#include <mx/screen.h>
 #include <mx/sif.h>
 #include <mx/setting.h>
 #include <mx/video.h>
@@ -80,7 +83,7 @@ static int vrows(int *r);
 static int nitems(void) {
   switch (page) {
   case P_VIDEO: {
-    int r[8];
+    int r[16];
     return vrows(r);
   }
   case P_NETWORK: return 4;
@@ -90,20 +93,24 @@ static int nitems(void) {
   }
 }
 
-/* the Video page: a family of modes, and under it what varies in it (the
-   rate, or the standard); the rows that only some families have */
+/* the Video page (the system's settings, <mx/screen.h>, kernel version 31):
+   the mode as four cards and its standard under them, the output, the TV's
+   shape and overscan, how programs are shown, and two lists of their own:
+   the modes this TV shows (video.allowed) and the shell's own picture */
 enum { FAM_1080, FAM_720, FAM_EDTV, FAM_SD, NFAMS };
 static const struct {
-  const char *name, *size;
-  int n, mode[4];
-  const char *sub[4];
-} fams[NFAMS] = {
-    {"1080", "1920 x 1080", 4, {VM_1080I, VM_1080I50, VM_1080P30, VM_1080P25}, {"60i", "50i", "30p", "25p"}},
-    {"720p", "1280 x 720", 2, {VM_720P, VM_720P50}, {"60p", "50p"}},
-    {"480p/576p", "640 x 480 / 576", 2, {VM_480P, VM_576P}, {"NTSC  60p", "PAL  50p"}},
-    {"NTSC/PAL", "640 x 448 / 512", 2, {VM_NTSC, VM_PAL}, {"NTSC  60i", "PAL  50i"}},
+  const char *size;
+  int n, mode[5];
+  const char *sub[5];
+} fams[NFAMS] = { /* the region's 60 Hz first, its 50 Hz next */
+    {"1920 x 1080", 5, {VM_1080I, VM_1080I50, VM_1080P24, VM_1080P25, VM_1080P30}, {"60i", "50i", "24p", "25p", "30p"}},
+    {"1280 x 720", 2, {VM_720P, VM_720P50}, {"60p", "50p"}},
+    {"640 x 480 / 576", 2, {VM_480P, VM_576P}, {"NTSC  60p", "PAL  50p"}},
+    {"640 x 448 / 512", 4, {VM_480I, VM_576I, VM_240P, VM_288P}, {"480i", "576i", "240p", "288p"}},
 };
 static int vfam, vsub; /* the one being chosen (not yet in use) */
+enum { VL_MAIN, VL_PICTURE, VL_ALLOWED };
+static int vlist;
 
 static void fam_of(int m, int *f, int *sub) {
   for (int i = 0; i < NFAMS; i++)
@@ -115,47 +122,143 @@ static void fam_of(int m, int *f, int *sub) {
   *f = FAM_SD, *sub = 0;
 }
 
-/* the rows of the Video page */
-enum { VR_FAMILY, VR_RATE, VR_COLOUR, VR_DITHER, VR_DTEST, VR_TV, VR_FLICKER };
+/* the region's own mode: every TV of the region shows it, on any cable */
+static int region_sd(void) { return mx_video_default() == &mx_video_pal ? VM_576I : VM_480I; }
+/* RGB (SCART, composite, S-video) carries 480i, 576i, 240p and 288p only */
+static int needs_component(int vm) { return !VM_RGB(vm); }
+
+/* the rows of the Video page and its lists */
+enum { VR_FAMILY, VR_STD, VR_OUT, VR_TV, VR_OVERSCAN, VR_SCALE, VR_ALLOWED, VR_PICTURE,
+       VR_COLOUR, VR_DITHER, VR_DTEST, VR_FLICKER, VR_MODE /* + MX_SCREEN_*: video.allowed's */ };
 static int vrows(int *r) {
   int n = 0;
-  r[n++] = VR_FAMILY, r[n++] = VR_RATE, r[n++] = VR_COLOUR, r[n++] = VR_DITHER, r[n++] = VR_DTEST;
-  if (vfam == FAM_EDTV || vfam == FAM_SD)
-    r[n++] = VR_TV;
-  if (vfam == FAM_SD)
-    r[n++] = VR_FLICKER;
+  if (vlist == VL_PICTURE) {
+    r[n++] = VR_COLOUR, r[n++] = VR_DITHER, r[n++] = VR_DTEST, r[n++] = VR_FLICKER;
+  } else if (vlist == VL_ALLOWED) {
+    struct mx_screen_conf c;
+    video_conf(&c);
+    for (int vm = 0; vm < VM_MODES && n < 15; vm++) {
+      u32 m = mx_screen_mode_of(vmodes[vm].key);
+      if (c.allowed >> m & 1)
+        r[n++] = VR_MODE + (int)m;
+    }
+  } else {
+    r[n++] = VR_FAMILY, r[n++] = VR_STD, r[n++] = VR_OUT, r[n++] = VR_TV, r[n++] = VR_OVERSCAN;
+    r[n++] = VR_SCALE, r[n++] = VR_ALLOWED, r[n++] = VR_PICTURE;
+  }
   return n;
 }
 
-/* a new mode is kept only when it is confirmed within 15 s: a television
-   that cannot show it gets the old one back */
-static int confirm_from = -1;
-static u32 confirm_until;
+/* ---- the trial: a new mode or output is kept only when confirmed. The
+   kernel puts the confirmed one back 15 s after the change (the TV may show
+   nothing); the shell asks, and puts it back itself on circle or when its
+   own 15 s are over ---- */
+static int trial, os_ask;
+static u32 trial_until;
 
-static void video_set(int c) {
-  int old = video_choice();
-  if (c == old)
-    return;
-  cfg_set("video.mode", vmodes[c].key);
+/* "<mode> <out>": now, and the one confirmed (none: the region's mode) */
+static void now_text(char *t, u32 n) {
+  struct mx_screen_conf c;
+  video_conf(&c);
+  mx_snprintf(t, n, "%s %s", mx_screen_name(c.mode), c.rgb ? "rgb" : "component");
+}
+static void confirmed_text(char *t, u32 n) {
+  const char *v = cfg_get("video.confirm", "");
+  if (*v)
+    mx_snprintf(t, n, "%s", v);
+  else
+    mx_snprintf(t, n, "%s component", vmodes[region_sd()].key);
+}
+
+static void video_put(const char *mode, const char *out) {
+  cfg_set("video.mode", mode);
+  cfg_set("video.out", out);
+  cfg_save();
   video_apply();
-  if (video_mode != c) {
+}
+
+/* back to the confirmed mode and output */
+static void video_back(void) {
+  char t[MX_SETTING_VALUE];
+  confirmed_text(t, sizeof t);
+  char *sp = strchr(t, ' ');
+  const char *out = "component";
+  if (sp)
+    *sp = 0, out = sp + 1;
+  trial = 0;
+  video_put(t, out);
+}
+
+static void video_try(int vm, int rgb) {
+  char before[24];
+  now_text(before, sizeof before);
+  struct mx_screen_conf c;
+  video_conf(&c);
+  if (vm == video_of_screen(c.mode) && rgb == c.rgb)
+    return;
+  video_put(vmodes[vm].key, rgb ? "rgb" : "component");
+  if (video_mode != vm) {
     /* libgl could not set it and fell back: back to the old one */
     char m[48];
-    mx_snprintf(m, sizeof m, "%s does not run here", vmodes[c].name);
-    cfg_set("video.mode", vmodes[old].key);
-    video_apply();
+    mx_snprintf(m, sizeof m, "%s does not run here", vmodes[vm].key);
+    char *sp = strchr(before, ' ');
+    if (sp)
+      *sp = 0;
+    video_put(before, sp ? sp + 1 : "component");
     toast(N_WARN, "Mode not available", m, 1);
     return;
   }
-  confirm_from = old;
-  confirm_until = ticks + (u32)(15.0f / frame_dt);
+  char now[24], conf[MX_SETTING_VALUE];
+  now_text(now, sizeof now);
+  confirmed_text(conf, sizeof conf);
+  trial = strcmp(now, conf) != 0;
+  trial_until = ticks + (u32)(15.0f / frame_dt);
 }
 
-static void video_revert(void) {
-  cfg_set("video.mode", vmodes[confirm_from].key);
-  confirm_from = -1;
-  video_apply();
+/* kept: video.confirm, and the mode one this TV shows */
+static void video_keep(void) {
+  char now[24], list[MX_SETTING_VALUE] = "";
+  now_text(now, sizeof now);
+  cfg_set("video.confirm", now);
+  struct mx_screen_conf c;
+  video_conf(&c);
+  for (int m = 1; m < MX_SCREEN_MODES; m++)
+    if (c.allowed >> m & 1) {
+      u32 l = (u32)strlen(list);
+      mx_snprintf(list + l, sizeof list - l, "%s%s", l ? " " : "", mx_screen_name((u32)m));
+    }
+  cfg_set("video.allowed", list);
+  cfg_save();
+  trial = 0;
 }
+
+/* a mode taken off video.allowed (not the region's, not the one in use) */
+static void allowed_remove(u32 mode) {
+  struct mx_screen_conf c;
+  video_conf(&c);
+  char list[MX_SETTING_VALUE] = "";
+  for (u32 m = 1; m < MX_SCREEN_MODES; m++)
+    if (c.allowed >> m & 1 && m != mode) {
+      u32 l = (u32)strlen(list);
+      mx_snprintf(list + l, sizeof list - l, "%s%s", l ? " " : "", mx_screen_name(m));
+    }
+  cfg_set("video.allowed", list);
+  cfg_save();
+}
+
+/* the kernel put the confirmed mode back (its 15 s, L1 L2 R1 R2): no question */
+void video_trial_check(void) {
+  if (!trial)
+    return;
+  char now[24], conf[MX_SETTING_VALUE];
+  now_text(now, sizeof now);
+  confirmed_text(conf, sizeof conf);
+  if (!strcmp(now, conf))
+    trial = 0;
+}
+
+/* tests: Video's list l open (1 the shell's picture, 2 the modes) */
+void settings_vlist(int l) { vlist = l; }
 
 /* tests: in the page, row n chosen */
 void settings_pick(int n) {
@@ -171,7 +274,7 @@ void settings_pick(int n) {
 void settings_enter(void) {
   screen = SCR_SETTINGS;
   fam_of(video_choice(), &vfam, &vsub);
-  in_page = 0, item = 0, edit = 0;
+  in_page = 0, item = 0, edit = 0, vlist = VL_MAIN;
   if (!ip_loaded)
     ip_load();
 }
@@ -222,63 +325,149 @@ static void vrow(float x0, float x1, float y, const char *label, const char *sub
   d_rect(x0, mid + 26, x1, mid + 27, argb(C_WHITE, 0.08f), argb(C_WHITE, 0.08f));
 }
 
+/* a value at the right of a row, and the arrow of a row that opens a list */
+static void vvalue(float x0, float x1, float y, const char *v, int chosen, int opens) {
+  float w = opens ? 22 : 0;
+  if (opens)
+    d_text(FONT_BODY, x1 - 12, y, ">", argb(C_FAINT, 1));
+  if (v)
+    d_text_fit(FONT_SMALL, FONT_SMALL, x1 - w - fminf(d_text_w(FONT_SMALL, v), x1 - x0 - 300), y, x1 - x0 - 300, v,
+               argb(chosen ? C_WHITE : C_DIM, 1));
+}
+
+static const char *const seg_onoff[2] = {"On", "Off"};
+
+/* the shell's own picture: colour, dithering, the flicker filter */
+static void video_row_picture(float x0, float x1, float yy, int what, int chosen) {
+  int sd = video_mode == VM_480I || video_mode == VM_576I;
+  switch (what) {
+  case VR_COLOUR: {
+    static const char *const l[2] = {"32-bit where it fits", "16-bit"};
+    int hd = VM_HD(video_mode);
+    vrow(x0, x1, yy, "Colour", hd ? "HD is always 16-bit: 32 does not fit" : 0, chosen);
+    if (hd)
+      row_seg(x1, yy, l + 1, 1, 0, chosen);
+    else
+      row_seg(x1, yy, l, 2, cfg_get("video.depth", "32")[0] == '3' ? 0 : 1, chosen);
+    break;
+  }
+  case VR_DITHER: {
+    const char *l[1] = {dither_name(dither_choice())};
+    vrow(x0, x1, yy, "Dithering", "16-bit colour", chosen);
+    row_seg(x1, yy, l, 1, 0, chosen);
+    break;
+  }
+  case VR_DTEST:
+    vrow(x0, x1, yy, "Dithering test picture", 0, chosen);
+    vvalue(x0, x1, yy, 0, chosen, 1);
+    break;
+  case VR_FLICKER: {
+    static const char *const l[2] = {"Off", "On"};
+    vrow(x0, x1, yy, "Flicker filter", sd ? "Softer, against flicker on interlaced lines" : "480i and 576i only",
+         chosen);
+    row_seg(x1, yy, l, 2, video_deflicker(), chosen);
+    break;
+  }
+  }
+}
+
 static void page_video(float x0, float x1, float y) {
-  int use = video_choice(), uf, us;
+  struct mx_screen_conf c;
+  video_conf(&c);
+  int use = video_of_screen(c.mode), uf, us;
   fam_of(use, &uf, &us);
-  int r[8], n = vrows(r), cur = in_page ? r[item < n ? item : 0] : -1;
-  /* the families: four cards, the one being chosen lit, the one in use marked */
+  int r[16], n = vrows(r), cur = in_page ? r[item < n ? item : 0] : -1;
+  int hd = VM_HD(use);
+  if (vlist != VL_MAIN) {
+    /* a list of its own: under the page's title, what it is */
+    d_label(x0, y - 2, vlist == VL_PICTURE ? "Video" DOT "the shell's picture" : "Video" DOT "modes this TV shows",
+            argb(C_LAMP, 1));
+    float yy = y + 56;
+    for (int i = 0; i < n; i++, yy += 54) {
+      int chosen = cur == r[i];
+      if (r[i] < VR_MODE) {
+        video_row_picture(x0, x1, yy, r[i], chosen);
+        continue;
+      }
+      u32 m = (u32)(r[i] - VR_MODE);
+      int vm = video_of_screen(m);
+      const char *sub = vm == region_sd() ? "The console's own: always" : m == c.mode ? "In use" : 0;
+      vrow(x0, x1, yy, vmodes[vm].name, sub, chosen);
+    }
+    if (vlist == VL_ALLOWED) {
+      row_note(x0, yy + 6, "A mode is added when you keep it.");
+      row_note(x0, yy + 32, "Programs set to Native may use these.");
+    }
+    return;
+  }
+  /* the modes: four cards, the one being chosen lit, the one in use marked */
   float gap = 12, cw = (x1 - x0 - gap * 3) / 4, ch = 74, cy = y - 12;
   for (int f = 0; f < NFAMS; f++) {
     float cx = x0 + (cw + gap) * f;
-    int on = f == vfam, lit = on && cur == VR_FAMILY;
+    int on = f == vfam, lit = on && cur == VR_FAMILY, off = c.rgb && needs_component(fams[f].mode[0]);
     d_highlight(cx, cy, cx + cw, cy + ch, 10, on ? (lit ? 0.12f : 0.08f) : 0.035f, on ? 0.04f : 0.015f,
                 on ? (lit ? 1 : 0.5f) : 0);
-    d_text_fit(FONT_BUTTON, FONT_SMALL, cx + 12, cy + 34, cw - 20, fams[f].name, argb(on ? C_WHITE : C_DIM, 1));
-    const char *sub = f == uf ? "In use" : fams[f].size;
-    if (f == uf || cw >= 150) /* 4:3: the sizes do not fit, only "In use" */
-      d_text(FONT_SMALL, cx + 12, cy + 60, sub, argb(f == uf ? C_LAMP : C_FAINT, 1));
+    /* its name: the standard chosen (this card's), in use, or the region's */
+    int k = f == vfam ? vsub : f == uf ? us : fams[f].n > 1 && region_sd() == VM_576I;
+    d_text_fit(FONT_BUTTON, FONT_SMALL, cx + 12, cy + 34, cw - 20, vmodes[fams[f].mode[k]].key,
+               argb(off ? C_FAINT : on ? C_WHITE : C_DIM, 1));
+    const char *sub = f == uf ? "In use" : off ? "Component only" : fams[f].size;
+    if (f == uf || off || cw >= 150) /* 4:3: the sizes do not fit, only "In use" */
+      d_text_fit(FONT_SMALL, FONT_SMALL, cx + 12, cy + 60, cw - 20, sub, argb(f == uf ? C_LAMP : C_FAINT, 1));
   }
-  float yy = cy + ch + 44, step = 50;
+  float yy = cy + ch + 44, step = 54;
   for (int i = 1; i < n; i++, yy += step) {
     int chosen = cur == r[i];
     switch (r[i]) {
-    case VR_RATE: {
-      /* a choice that is not in use: what it is, and how to try it */
+    case VR_STD: {
       int m = fams[vfam].mode[vsub];
       char l[64];
-      mx_snprintf(l, sizeof l, "%s" DOT "not in use yet", vmodes[m].name);
-      vrow(x0, x1, yy, "Frame rate", m == use ? 0 : l, chosen);
+      mx_snprintf(l, sizeof l, "%s" DOT "not in use yet", vmodes[m].key);
+      vrow(x0, x1, yy, "Standard", m == use ? 0 : l, chosen);
       row_seg(x1, yy, fams[vfam].sub, fams[vfam].n, vsub, chosen);
       break;
     }
-    case VR_COLOUR: {
-      static const char *const l[2] = {"32-bit where it fits", "16-bit"};
-      vrow(x0, x1, yy, "Colour", vfam == FAM_1080 ? "1080 is always 16-bit: 32 does not fit" : 0, chosen);
-      if (vfam == FAM_1080)
-        row_seg(x1, yy, l + 1, 1, 0, chosen);
-      else
-        row_seg(x1, yy, l, 2, cfg_get("video.depth", "32")[0] == '3' ? 0 : 1, chosen);
+    case VR_OUT: {
+      static const char *const l[2] = {"Component", "RGB"};
+      vrow(x0, x1, yy, "Output", c.rgb ? "SCART, composite, S-video: 480i, 576i, 240p, 288p" : "Component (YPbPr): every mode",
+           chosen);
+      row_seg(x1, yy, l, 2, c.rgb, chosen);
       break;
     }
-    case VR_DITHER: {
-      const char *l[1] = {dither_name(dither_choice())};
-      vrow(x0, x1, yy, "Dithering", "16-bit colour", chosen);
-      row_seg(x1, yy, l, 1, 0, chosen);
-      break;
-    }
-    case VR_DTEST:
-      vrow(x0, x1, yy, "Dithering test picture", 0, chosen);
-      break;
     case VR_TV: {
       static const char *const l[2] = {"4:3", "16:9"};
-      vrow(x0, x1, yy, "Television", "The shape of the picture", chosen);
-      row_seg(x1, yy, l, 2, video_sd_wide(), chosen);
+      vrow(x0, x1, yy, "TV shape", hd ? "Not HD: that is always 16:9" : "The shape of the picture", chosen);
+      row_seg(x1, yy, l, 2, hd ? 1 : c.wide, chosen);
       break;
     }
-    case VR_FLICKER: {
-      static const char *const l[2] = {"Off", "On"};
-      vrow(x0, x1, yy, "Flicker filter", "Softer, against flicker on interlaced lines", chosen);
-      row_seg(x1, yy, l, 2, video_deflicker(), chosen);
+    case VR_OVERSCAN:
+      vrow(x0, x1, yy, "Overscan", hd ? "Not HD" : "Does the TV show the whole picture?", chosen);
+      row_seg(x1, yy, seg_onoff, 2, c.full, chosen);
+      break;
+    case VR_SCALE: {
+      static const char *const l[2] = {"Stretch", "Native"};
+      vrow(x0, x1, yy, "Programs",
+           c.native ? "In a mode of their own where this TV shows it" : "All in this mode", chosen);
+      row_seg(x1, yy, l, 2, c.native, chosen);
+      break;
+    }
+    case VR_ALLOWED: {
+      char l[112] = "";
+      for (int vm = 0; vm < VM_MODES; vm++)
+        if (c.allowed >> mx_screen_mode_of(vmodes[vm].key) & 1) {
+          u32 k = (u32)strlen(l);
+          mx_snprintf(l + k, sizeof l - k, "%s%s", k ? "  " : "", vmodes[vm].key);
+        }
+      vrow(x0, x1, yy, "Modes this TV shows", 0, chosen);
+      vvalue(x0, x1, yy, l, chosen, 1);
+      break;
+    }
+    case VR_PICTURE: {
+      char l[48];
+      int rgb16 = hd || cfg_get("video.depth", "32")[0] != '3';
+      mx_snprintf(l, sizeof l, "%s%s", rgb16 ? "16-bit" DOT : "32-bit", rgb16 ? dither_name(dither_choice()) : "");
+      vrow(x0, x1, yy, "The shell's picture", 0, chosen);
+      vvalue(x0, x1, yy, l, chosen, 1);
       break;
     }
     }
@@ -423,26 +612,34 @@ static void page_system(float x0, float x1, float y) {
   row_line(x0, x1, y + ROW * 2, "Services", buf[0] ? buf : "None", 0, 1);
 }
 
-static void confirm_draw(void) {
-  float w = 520, h = 190, x = (SCR_W - w) / 2, y = 250;
+/* a question over the page: a title, a line, cross and circle */
+static void ask_draw(const char *title, const char *line, const char *yes, const char *no) {
+  float w = 560, h = 190, x = (SCR_W - w) / 2, y = 250;
   d_rect(0, 0, SCR_W, SCR_H, argb(C_INK, 0.6f), argb(C_INK, 0.6f));
   d_shadow(x + w / 2, y + h / 2, w * 0.7f, h * 0.9f, 0.5f);
   d_card_lit(x, y, x + w, y + h, 14, 0x17191E, 1, 0.55f);
-  d_text(FONT_TITLE, x + 32, y + 58, "Keep this mode?", argb(C_WHITE, 1));
-  char m[48];
-  int left = (int)((float)(confirm_until - ticks) * frame_dt) + 1;
-  mx_snprintf(m, sizeof m, "The old one comes back in %d s.", left);
-  d_text(FONT_BODY, x + 32, y + 92, m, argb(C_DIM, 1));
+  d_text(FONT_TITLE, x + 32, y + 58, title, argb(C_WHITE, 1));
+  d_text_fit(FONT_BODY, FONT_SMALL, x + 32, y + 92, w - 64, line, argb(C_DIM, 1));
   float bx = x + 32;
   aa_under(0x17191E);
-  bx += d_button(bx, y + 118, SYM_CROSS, "Keep", 1) + 12;
-  d_button(bx, y + 118, SYM_CIRCLE, "Go back", 0);
+  bx += d_button(bx, y + 118, SYM_CROSS, yes, 1) + 12;
+  d_button(bx, y + 118, SYM_CIRCLE, no, 0);
   aa_under_room();
 }
 
+static void confirm_draw(void) {
+  char m[80];
+  struct mx_screen_conf c;
+  video_conf(&c);
+  int left = (int)((float)(trial_until - ticks) * frame_dt) + 1;
+  mx_snprintf(m, sizeof m, "%s%s. The old one comes back in %d s.", mx_screen_name(c.mode), c.rgb ? " over RGB" : "",
+              left > 0 ? left : 0);
+  ask_draw("Keep this video mode?", m, "Keep", "Go back");
+}
+
 void settings_draw(void) {
-  if (confirm_from >= 0 && (int)(ticks - confirm_until) >= 0)
-    video_revert();
+  if (trial && (int)(ticks - trial_until) >= 0)
+    video_back();
   spring_step(&sel, (float)page, W_FOCUS, frame_dt);
   room_begin(-1);
   room_light(MARGIN + 130, 146 + sel.x * 52, 360, 280, 0.06f);
@@ -478,45 +675,137 @@ void settings_draw(void) {
   static const char *const h_list[] = {SYM_CROSS, "Open", "L1", "Section", SYM_CIRCLE, "Back", 0};
   static const char *const h_page[] = {SYM_CROSS, "Change", SYM_CIRCLE, "Back", 0};
   static const char *const h_edit[] = {"L R", "Number", "UP DOWN", "Change", SYM_CROSS, "Done", 0};
-  if (confirm_from >= 0)
+  static const char *const h_list2[] = {SYM_CROSS, "Remove", SYM_CIRCLE, "Back", 0};
+  static const char *const h_try[] = {"L R", "Choose", SYM_CROSS, "Try it", SYM_CIRCLE, "Back", 0};
+  static const char *const h_test[] = {"L R", "On, off", SYM_CROSS, "Test frame", SYM_CIRCLE, "Back", 0};
+  static const char *const h_open[] = {SYM_CROSS, "Open", SYM_CIRCLE, "Back", 0};
+  const char *const *h_video = h_page;
+  if (in_page && page == P_VIDEO) {
+    int r[16], n = vrows(r), w = n > 0 ? r[item < n ? item : n - 1] : -1;
+    struct mx_screen_conf c;
+    video_conf(&c);
+    u32 m = w >= VR_MODE ? (u32)(w - VR_MODE) : 0;
+    int removable = m && m != c.mode && video_of_screen(m) != region_sd();
+    h_video = vlist == VL_ALLOWED ? (removable ? h_list2 : h_open + 2)
+              : w == VR_FAMILY || w == VR_STD ? h_try
+              : w == VR_OVERSCAN ? h_test
+              : w == VR_ALLOWED || w == VR_PICTURE || w == VR_DTEST ? h_open
+                                                                    : h_page;
+  }
+  if (trial)
     confirm_draw();
+  else if (os_ask)
+    ask_draw("Did you see all of the frame?", "Its white line at all four edges of the screen.", "Yes: overscan off",
+             "No: keep it on");
   else
-    hints_draw(edit ? h_edit : in_page && page == P_PADS ? pads_hints("Back") : in_page ? h_page : h_list);
+    hints_draw(edit ? h_edit
+               : in_page && page == P_PADS ? pads_hints("Back")
+               : in_page && page == P_VIDEO ? h_video
+               : in_page ? h_page
+                         : h_list);
   status_draw();
+}
+
+/* the row of the main list that opened a list */
+static int row_of(int what) {
+  int r[16], n;
+  vlist = VL_MAIN;
+  n = vrows(r);
+  for (int i = 0; i < n; i++)
+    if (r[i] == what)
+      return i;
+  return 0;
+}
+
+static void toggle(const char *key, const char *a, const char *b, const char *def) {
+  cfg_set(key, strcmp(cfg_get(key, def), a) ? a : b);
+  cfg_save();
 }
 
 /* the Video page: left and right change a row's choice, cross uses it */
 static void video_input(u32 p) {
-  int r[8], n = vrows(r);
+  int r[16], n = vrows(r);
   if (item >= n)
     item = n - 1;
   int d = p & MX_PAD_RIGHT ? 1 : p & MX_PAD_LEFT ? -1 : 0, x = p & MX_PAD_CROSS;
+  struct mx_screen_conf c;
+  video_conf(&c);
+  int hd = VM_HD(video_of_screen(c.mode));
   if (p & MX_PAD_CIRCLE) {
-    in_page = 0;
+    if (vlist == VL_MAIN)
+      in_page = 0;
+    else
+      item = row_of(vlist == VL_PICTURE ? VR_PICTURE : VR_ALLOWED);
     return;
   }
-  switch (r[item]) {
-  case VR_FAMILY:
-    if (d && vfam + d >= 0 && vfam + d < NFAMS) {
-      int uf, us;
-      fam_of(video_choice(), &uf, &us);
-      vfam += d;
-      /* in use: its own rate; else the console's region in SD, the first otherwise */
-      vsub = vfam == uf ? us : vfam >= FAM_EDTV && mx_video_default() == &mx_video_pal ? 1 : 0;
+  if (n <= 0)
+    return;
+  int what = r[item];
+  if (what >= VR_MODE) {
+    u32 m = (u32)(what - VR_MODE);
+    int vm = video_of_screen(m);
+    if (x && vm != region_sd() && m != c.mode) {
+      allowed_remove(m);
+      vrows(r);
+      n = vrows(r);
+      if (item >= n)
+        item = n - 1;
     }
-    if (x)
-      video_set(fams[vfam].mode[vsub]);
-    break;
-  case VR_RATE:
-    if (d && vsub + d >= 0 && vsub + d < fams[vfam].n)
+    return;
+  }
+  switch (what) {
+  case VR_FAMILY:
+  case VR_STD:
+    if (d && what == VR_FAMILY && vfam + d >= 0 && vfam + d < NFAMS) {
+      int uf, us;
+      fam_of(video_of_screen(c.mode), &uf, &us);
+      vfam += d;
+      /* in use: its own standard; else the console's region */
+      vsub = vfam == uf ? us : fams[vfam].n > 1 && region_sd() == VM_576I ? 1 : 0;
+    }
+    if (d && what == VR_STD && vsub + d >= 0 && vsub + d < fams[vfam].n)
       vsub += d;
+    if (x) {
+      int vm = fams[vfam].mode[vsub];
+      if (c.rgb && needs_component(vm))
+        toast(N_WARN, "Needs component", "Set Output to Component first", 1);
+      else
+        video_try(vm, c.rgb);
+    }
+    break;
+  case VR_OUT:
+    if (d || x) {
+      int rgb = !c.rgb, vm = video_of_screen(c.mode);
+      if (rgb && needs_component(vm))
+        vm = region_sd(); /* RGB carries 480i, 576i, 240p and 288p only */
+      video_try(vm, rgb);
+      fam_of(video_choice(), &vfam, &vsub);
+    }
+    break;
+  case VR_TV:
+    if ((d || x) && !hd) {
+      toggle("video.aspect", "16:9", "4:3", "4:3");
+      video_apply();
+    }
+    break;
+  case VR_OVERSCAN:
+    if (d && !hd)
+      toggle("video.overscan", "off", "on", "on");
+    if (x && !hd && overscan_test() == 0)
+      os_ask = 1;
+    break;
+  case VR_SCALE:
+    if (d || x)
+      toggle("video.scale", "native", "stretch", "stretch");
+    break;
+  case VR_ALLOWED:
+  case VR_PICTURE:
     if (x)
-      video_set(fams[vfam].mode[vsub]);
+      vlist = what == VR_ALLOWED ? VL_ALLOWED : VL_PICTURE, item = 0;
     break;
   case VR_COLOUR:
-    if ((d || x) && vfam != FAM_1080) {
-      cfg_set("video.depth", cfg_get("video.depth", "32")[0] == '3' ? "16" : "32");
-      cfg_save();
+    if ((d || x) && !hd) {
+      toggle("video.depth", "16", "32", "32");
       video_apply();
     }
     break;
@@ -528,17 +817,9 @@ static void video_input(u32 p) {
     if (x)
       screen = SCR_DITHER;
     break;
-  case VR_TV:
-    if (d || x) {
-      cfg_set("video.aspect", video_sd_wide() ? "4:3" : "16:9");
-      cfg_save();
-      video_apply();
-    }
-    break;
   case VR_FLICKER:
     if (d || x) {
-      cfg_set("video.deflicker", video_deflicker() ? "off" : "on");
-      cfg_save();
+      toggle("video.deflicker", "on", "off", "off");
       video_apply();
     }
     break;
@@ -547,11 +828,19 @@ static void video_input(u32 p) {
 
 void settings_input(void) {
   u32 p = pad_pressed;
-  if (confirm_from >= 0) {
+  if (trial) {
     if (p & MX_PAD_CROSS)
-      confirm_from = -1, cfg_save();
+      video_keep();
     else if (p & MX_PAD_CIRCLE)
-      video_revert();
+      video_back();
+    return;
+  }
+  if (os_ask) { /* after the overscan test: did the TV show all of it? */
+    if (p & (MX_PAD_CROSS | MX_PAD_CIRCLE)) {
+      cfg_set("video.overscan", p & MX_PAD_CROSS ? "off" : "on");
+      cfg_save();
+      os_ask = 0;
+    }
     return;
   }
   if (!in_page) {
@@ -560,7 +849,7 @@ void settings_input(void) {
     if (p & MX_PAD_DOWN && page + 1 < NPAGES)
       page++;
     if (p & (MX_PAD_CROSS | MX_PAD_RIGHT) && nitems()) {
-      in_page = 1, item = 0, fam_of(video_choice(), &vfam, &vsub);
+      in_page = 1, item = 0, vlist = VL_MAIN, fam_of(video_choice(), &vfam, &vsub);
       if (page == P_PADS)
         pads_enter();
     }

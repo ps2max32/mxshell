@@ -48,14 +48,21 @@ LEAST = [10, 12, 14, 14, 17, 22, 36]
 #   p480    480p (640 x 480, 4:3)
 #   ntsc    640 x 448, 4:3
 #   pal     640 x 512, 4:3
+#   p240    240p (640 x 224, 4:3), p288 288p (640 x 256): half the lines of
+#           ntsc and pal; their text is smaller than LEAST (LEAST_LOW), the
+#           least a font of so few lines can be
 #   ...w    the same at 16:9 (anamorphic: 1280 units across 640 pixels)
 SHAPES = {"hd": (1.5, 1.5), "hd540": (1.5, 0.75), "p720": (1.0, 1.0), "p576": (640 / 960, 576 / 720),
           "p480": (640 / 960, 480 / 720), "ntsc": (640 / 960, 448 / 720), "pal": (640 / 960, 512 / 720),
           "p576w": (640 / 1280, 576 / 720), "p480w": (640 / 1280, 480 / 720),
-          "ntscw": (640 / 1280, 448 / 720), "palw": (640 / 1280, 512 / 720)}
+          "ntscw": (640 / 1280, 448 / 720), "palw": (640 / 1280, 512 / 720),
+          "p240": (640 / 960, 224 / 720), "p288": (640 / 960, 256 / 720),
+          "p240w": (640 / 1280, 224 / 720), "p288w": (640 / 1280, 256 / 720)}
+LEAST_LOW = [7, 7, 8, 8, 9, 11, 18]
 MODES = {}
 for name, (sx, sy) in SHAPES.items():
-    MODES[name] = (1024 if sy > 1 else 512, sx / sy, [max(round(u * sy), m) for u, m in zip(UNITS, LEAST)])
+    least = LEAST_LOW if name.startswith(("p240", "p288")) else LEAST
+    MODES[name] = (1024 if sy > 1 else 512, sx / sy, [max(round(u * sy), m) for u, m in zip(UNITS, least)])
 SYMS = {1: "cross", 2: "circle", 3: "square", 4: "triangle"}
 
 
