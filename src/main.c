@@ -172,7 +172,7 @@ static char run_name[48], run_dir[32], run_root[12];
 static int home_test, home_count;
 static u32 home_at;
 
-static u8 ev_stack[8192] MX_ALIGNED(16) MX_CORE_BSS;
+static u8 ev_stack[8192] MX_ALIGNED(16) MX_IRQ_BSS;
 static void ev_thread(void *arg) {
   (void)arg;
   for (;;) {

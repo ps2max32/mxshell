@@ -93,7 +93,7 @@ void video_apply(void) {
   int flags = cfg_get("video.beam", "1")[0] == '1' && !soft ? MXGL_BEAM : 0;
   if (flags && cfg_get("video.depth", "32")[0] == '3')
     flags |= MXGL_RGB24;
-  mxgl_set_mode(vmodes[m].gl | flags);
+  mxgl_set_mode(vmodes[m].gl | flags | MXGL_EXACT); /* the shell makes the settings */
   mxgl_deflicker(soft);
   /* libgl falls back to the console's own mode for one it cannot set */
   int got = mxgl_mode();

@@ -6,15 +6,17 @@
 
    e.g. usbcopy host:coverhd.t8 usb0:/PS2MAX/quake1/coverhd.t8. The kernel
    (version 26) has the USB drivers loaded; usbcopy checks usb0: is there,
-   then copies each file and reads it back to compare. Ends with the number
-   of files that failed. */
+   then copies each file (any size, a megabyte at a time; its directories
+   made where they are not there) and reads it back to compare. Ends with
+   the number of files that failed. */
 #include <mx/debug.h>
 #include <mx/mx.h>
 #include <mx/sif.h>
 #include <mx/thread.h>
 #include <string.h>
 
-static u8 buf[256 * 1024], back[256 * 1024];
+#define PIECE (1024 * 1024)
+static u8 buf[PIECE] MX_ALIGNED(64), back[PIECE] MX_ALIGNED(64);
 
 static int read_all(const char *path, u8 *to, u32 room) {
   int fd = mx_fio_open(path, MX_FIO_RDONLY);
@@ -27,27 +29,65 @@ static int read_all(const char *path, u8 *to, u32 room) {
   return n;
 }
 
+/* the directories of a path, made where they are not there */
+static void dirs_of(const char *path) {
+  char d[256];
+  u32 n = (u32)strlen(path);
+  if (n >= sizeof d)
+    return;
+  memcpy(d, path, n + 1);
+  for (char *c = strchr(d, ':'); c && *c; c++)
+    if (*c == '/' && c[-1] != ':') {
+      *c = 0;
+      mx_fio_mkdir(d, 0777); /* there already: fine */
+      *c = '/';
+    }
+}
+
+/* in pieces of PIECE bytes (any size), then read back piece by piece */
 static int copy(const char *from, const char *to) {
-  int n = read_all(from, buf, sizeof buf);
-  if (n < 0 || n == (int)sizeof buf) {
-    mx_printf("usbcopy: %s: %s\n", from, n < 0 ? "not there" : "too large");
+  int in = mx_fio_open(from, MX_FIO_RDONLY);
+  int size = in < 0 ? -1 : mx_fio_lseek(in, 0, MX_FIO_SEEK_END);
+  if (size < 0 || mx_fio_lseek(in, 0, MX_FIO_SEEK_SET) != 0) {
+    if (in >= 0)
+      mx_fio_close(in);
+    mx_printf("usbcopy: %s: not there\n", from);
     return -1;
   }
-  int fd = mx_fio_open(to, MX_FIO_WRONLY | MX_FIO_CREAT | MX_FIO_TRUNC);
-  if (fd < 0) {
-    mx_printf("usbcopy: %s: cannot write (%d)\n", to, fd);
+  dirs_of(to);
+  int out = mx_fio_open(to, MX_FIO_WRONLY | MX_FIO_CREAT | MX_FIO_TRUNC);
+  if (out < 0) {
+    mx_fio_close(in);
+    mx_printf("usbcopy: %s: cannot write (%d)\n", to, out);
     return -1;
   }
-  int w = mx_fio_write(fd, buf, (u32)n);
-  mx_fio_close(fd);
-  int m = read_all(to, back, sizeof back);
-  /* what is read back decides (a write to host: answers 0, not the bytes) */
-  (void)w;
-  if (m != n || memcmp(buf, back, (u32)n)) {
-    mx_printf("usbcopy: %s: wrote %d of %d, read back %d: not the same\n", to, w, n, m);
+  int bad = 0;
+  for (u32 done = 0; done < (u32)size && !bad; done += PIECE) {
+    u32 n = (u32)size - done < PIECE ? (u32)size - done : PIECE;
+    if (mx_fio_read(in, buf, n) != (int)n || mx_fio_write(out, buf, n) < 0)
+      bad = 1;
+  }
+  mx_fio_close(in);
+  mx_fio_close(out);
+  /* what is read back decides */
+  in = mx_fio_open(from, MX_FIO_RDONLY);
+  out = mx_fio_open(to, MX_FIO_RDONLY);
+  if (in < 0 || out < 0 || mx_fio_lseek(out, 0, MX_FIO_SEEK_END) != size || mx_fio_lseek(out, 0, MX_FIO_SEEK_SET) != 0)
+    bad = 1;
+  for (u32 done = 0; done < (u32)size && !bad; done += PIECE) {
+    u32 n = (u32)size - done < PIECE ? (u32)size - done : PIECE;
+    if (mx_fio_read(in, buf, n) != (int)n || mx_fio_read(out, back, n) != (int)n || memcmp(buf, back, n))
+      bad = 1;
+  }
+  if (in >= 0)
+    mx_fio_close(in);
+  if (out >= 0)
+    mx_fio_close(out);
+  if (bad) {
+    mx_printf("usbcopy: %s -> %s: not the same after writing\n", from, to);
     return -1;
   }
-  mx_printf("usbcopy: %s -> %s: %d bytes\n", from, to, n);
+  mx_printf("usbcopy: %s -> %s: %d bytes\n", from, to, size);
   return 0;
 }
 
@@ -60,7 +100,7 @@ int main(int argc, char **argv) {
   mx_fio_dclose(d);
   int bad = 0, n = 0;
   if (argc == 2 && argv[1][0] == '@') {
-    static char list[8192];
+    static char list[64 * 1024];
     int len = read_all(argv[1] + 1, (u8 *)list, sizeof list - 1);
     if (len < 0) {
       mx_printf("usbcopy: %s: not there\n", argv[1] + 1);

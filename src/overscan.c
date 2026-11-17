@@ -17,7 +17,7 @@
 #include "mxgl.h"
 #include "pn.h"
 
-static u32 pk[1024] MX_ALIGNED(64) MX_CORE_BSS; /* the DMAC reads it: 256 quadwords */
+static u32 pk[1024] MX_ALIGNED(64) MX_FAST_BSS; /* the DMAC reads it: 256 quadwords */
 static struct mx_display disp[2];
 int overscan_shot;
 

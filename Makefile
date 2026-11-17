@@ -38,7 +38,7 @@ MXGL_VSM_PROGS := room
 include $(MXGL)/mk/mxgl.mk
 include $(MAXSDK)/mk/maxsdk.mk
 # in VM: the shell in VM, libgl (what the DMAC reads) in core
-MX_CORE_OBJS = $(MXGL_OBJS)
+MX_FAST_OBJS = $(MXGL_OBJS)
 
 PICOLIBC ?= $(PS2MAX)/build/libs/picolibc/install
 LIBC_LIBS = $(MAXSDK_OUT)/libc/glue.c.o $(MAXSDK_OUT)/libmxc.a $(PICOLIBC)/lib/libc.a \

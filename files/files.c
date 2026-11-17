@@ -29,7 +29,7 @@ MX_CORE_HEAP(512 << 10);
 
 u32 pad_pressed, pad_held;
 int screen;
-static int pad_on;
+int pad_on; /* pn.h */
 
 /* ---- the devices: the kernel's list (devlist.c), then the PC (host:),
    looked at when chosen ---- */
@@ -180,8 +180,8 @@ static void read_pad(void) {
 
 /* ---- a long job: frames go on drawing while it runs (20 a second, from
    a timer), circle stops it ---- */
-static volatile u32 clock20 MX_CORE_DATA;
-MX_CORE_FN static void clock_tick(void *arg) {
+static volatile u32 clock20 MX_IRQ_DATA;
+MX_IRQ_FN static void clock_tick(void *arg) {
   (void)arg;
   clock20++;
 }

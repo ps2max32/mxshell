@@ -43,7 +43,7 @@ MX_CORE_HEAP(512 << 10);
 
 u32 pad_pressed, pad_held;
 int screen;
-static int pad_on;
+int pad_on; /* pn.h */
 
 /* ---- the kinds ---- */
 enum { K_PHOTO, K_VIDEO, K_MUSIC, NKINDS };
@@ -448,10 +448,10 @@ static char queue_dir[256];
 static int nqueue, qpos;
 
 /* the track playing (the thread's own) */
-static u8 mu_stack[16384] MX_ALIGNED(16) MX_CORE_BSS;
-static u8 mu_in[8192] MX_ALIGNED(64) MX_CORE_BSS;
-static s16 mu_pcm[MX_MP2_SAMPLES * 2] MX_ALIGNED(64) MX_CORE_BSS;
-static struct mx_mp2 mu_dec MX_CORE_BSS;
+static u8 mu_stack[16384] MX_ALIGNED(16) MX_IRQ_BSS;
+static u8 mu_in[8192] MX_ALIGNED(64) MX_IRQ_BSS;
+static s16 mu_pcm[MX_MP2_SAMPLES * 2] MX_ALIGNED(64) MX_IRQ_BSS;
+static struct mx_mp2 mu_dec MX_FAST_BSS;
 static struct {
   int fd, mp2, rate, bits, ch;
   u32 in, have;         /* mu_in: taken, there */
