@@ -261,6 +261,9 @@ int game_launch(int i) {
     *e++ = 0;
     argc++;
   }
-  /* the swap file is MXOS's own (the Storage page) */
-  return mx_proc_spawn(argc, args, (u32)(e - args), 0);
+  /* in the game's directory (kernel version 40); the swap file is MXOS's own
+     (the Storage page) */
+  static char dir[112];
+  game_path(dir, sizeof dir, i, "");
+  return mx_proc_spawn_in(dir, argc, args, (u32)(e - args), 0);
 }

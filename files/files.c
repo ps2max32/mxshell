@@ -467,9 +467,20 @@ static void start_elf(const char *path) {
   static char args[256];
   mx_snprintf(args, sizeof args, "%s", path);
   u32 len = (u32)strlen(args) + 1;
+  /* it starts in Files' working directory (kernel version 40): its own */
+  char back[MX_FIO_CWD_MAX], dir[MX_FIO_CWD_MAX];
+  u32 d = 0;
+  for (u32 i = 0; args[i] && i < sizeof dir - 1; i++)
+    if (args[i] == ':' || args[i] == '/')
+      d = i + 1;
+  memcpy(dir, args, d);
+  dir[d] = 0;
+  int moved = d && mx_fio_getcwd(back, sizeof back) >= 0 && mx_fio_chdir(dir) == 0;
   mxgl_suspend();
   int st = mx_loader_launch(1, args, len, 0);
   mxgl_resume();
+  if (moved)
+    mx_fio_chdir(back);
   for (int i = 0; mxgl_suspended() && i < 50; i++)
     mx_sleep_us(100000), mxgl_resume();
   video_apply();
