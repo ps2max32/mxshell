@@ -52,7 +52,9 @@ static u32 title_colour(const char *t) {
 }
 
 static int read_ini(int dev, struct game *g) {
-  char path[96], buf[768];
+  /* the store's game.ini has its keys too (apps/mxstore docs/index-format.md) */
+  static char buf[2048]; /* the shelf is read by one thread */
+  char path[96];
   mx_snprintf(path, sizeof path, "%s/PS2MAX/%s/game.ini", dev_root(dev), g->dir);
   int fd = mx_fio_open(path, MX_FIO_RDONLY);
   if (fd < 0) {
@@ -94,6 +96,8 @@ static int read_ini(int dev, struct game *g) {
       else if (!strcmp(s, "section")) {
         char sec[16];
         set(sec, sizeof sec, v);
+        if (!strcmp(sec, "system"))
+          return -1; /* MXSHELL itself: not on the shelf */
         g->sec = !strcmp(sec, "media") ? SEC_MEDIA : !strcmp(sec, "emulation") ? SEC_EMU : !strcmp(sec, "apps") ? SEC_APPS : SEC_GAMES;
       }
     }
