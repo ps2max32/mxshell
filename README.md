@@ -64,6 +64,18 @@ What it does now (PLAN.md, phase A):
   `tools/media-samples.sh build/pcsx2-test` downloads samples (Wikimedia Commons, Big Buck
   Bunny) and `make media-shot RUNNER=... MEDIA_ARGS="kind=video dev=host path=Media/Videos sel=1 open keys=rx"`
   plays one in PCSX2 (`keys=`: buttons a second apart).
+- **Store** (`store/`, MXSTORE, a tile in Apps: `make store` makes `PS2MAX/mxstore/` with
+  `MXSTORE.ELF` and its `game.ini`): the programs of the signed index on GitHub Pages
+  ([ps2max32/store](https://github.com/ps2max32/store), its format in `docs/index-format.md`
+  there), a shelf per section (Games, Emulation, Apps, System, Updates), a page per program (its
+  wide picture, its cover, facts, screenshots: R2 shows one large), and installing, updating
+  and removing on a USB drive or the hard disk (square: which). HTTPS by mbedTLS on the EE
+  (`libs/mbedtls`), all network and file work on a thread of its own. An install writes the
+  program's `game.ini` and cover from the index, so the store and the shelf show the same; a
+  copy put there by hand is replaced only after asking. MXBOOT and MXKERNEL are shown, not yet
+  installed by it. Tests: `base=host:<dir>/` reads a site from a directory, `dev=host`,
+  `install=<id>`, `remove=<id>`, `open=<id>`, `shot=<frames>`; `store/Makefile` makes the
+  network tests (`tlstest.elf`, `wget.elf`).
 - **Notifications**: cards top right, from the kernel's ring (`<mx/notify.h>`: devices that come
   and go, the swap file, controllers, crashes, other programs) and the shell's own; the ones
   that came during a game when the shell is in front again. Urgent ones stay until a button or
@@ -108,6 +120,7 @@ make home-test    # the home button on PCSX2 (RUNNER=..., HOME_KERNEL=<emulator 
                   # a stand-in game pressed home twice: hub (host:mxshell-home1.tga), Resume, Close
 make files        # PS2MAX/files: FILES.ELF and its game.ini
 make media        # PS2MAX/media/PLAYER.ELF, PS2MAX/photos, videos, music (game.ini, covers)
+make store        # PS2MAX/mxstore: MXSTORE.ELF and its game.ini
 make font         # font/font_<shape>.z and font.h from font/src
 make usbcopy      # tools/usbcopy.c: files to and from the USB stick through the host link
 ```

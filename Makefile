@@ -129,6 +129,39 @@ $(OUT)/PS2MAX/media/PLAYER.ELF: $(OUT)/media.elf $(MEDIA_KINDS:%=$(HERE)/media/%
 	python3 $(HERE)/tools/mk-media-covers.py $(HERE)/font/src/InterTight-Variable.ttf $(OUT)/PS2MAX
 media: $(OUT)/PS2MAX/media/PLAYER.ELF
 
+# MXSTORE, the store of mx OS (store/, an app in the shell's Apps section;
+# its index: ps2max32/store): the shell's drawing as Files, HTTPS by
+# mbedTLS (libs/mbedtls, store/src/mbedtls_user.h). $(OUT)/PS2MAX/mxstore:
+# MXSTORE.ELF and its game.ini, for <device>/PS2MAX/mxstore/. store/Makefile
+# makes its network tests (tlstest.elf, wget.elf)
+MBEDTLS ?= $(PS2MAX)/libs/mbedtls
+STORE_CFLAGS = -I$(HERE)/store/src -I$(MBEDTLS)/include -DMBEDTLS_USER_CONFIG_FILE='"mbedtls_user.h"'
+STORE_MBEDTLS = $(patsubst %.c,$(OUT)/obj/mbedtls/%.o,$(notdir $(wildcard $(MBEDTLS)/library/*.c)))
+STORE_SRCS = store catalog fetch install https port
+STORE_OBJS = $(FILES_SRCS:%=$(OUT)/obj/%.o) $(OUT)/obj/tile.o $(OUT)/obj/font_bin.o $(ZSRCS:%=$(OUT)/obj/zlib/%.o) \
+             $(OUT)/obj/zlib/crc32.o $(STORE_SRCS:%=$(OUT)/obj/store/%.o) $(OUT)/obj/store/roots.o $(STORE_MBEDTLS)
+$(OUT)/obj/mbedtls/%.o: $(MBEDTLS)/library/%.c $(HERE)/store/src/mbedtls_user.h
+	@mkdir -p $(dir $@)
+	$(CC) $(SCFLAGS) $(STORE_CFLAGS) -I$(MBEDTLS)/library -c $< -o $@
+$(OUT)/obj/store/%.o: $(HERE)/store/src/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(SCFLAGS) $(STORE_CFLAGS) $(MX_NET_CFLAGS) -I$(HERE)/src -I$(ZLIB) -c $< -o $@
+$(OUT)/store-roots.pem: $(sort $(wildcard $(HERE)/store/certs/*.pem))
+	@mkdir -p $(dir $@)
+	cat $^ > $@
+$(OUT)/obj/store/roots.o: $(HERE)/store/src/roots.S $(OUT)/store-roots.pem $(HERE)/store/src/index_key.pem
+	@mkdir -p $(dir $@)
+	cp $(OUT)/store-roots.pem $(OUT)/obj/store/roots.pem
+	$(CC) $(CFLAGS) -Wa,-I$(OUT)/obj/store -Wa,-I$(HERE)/store/src -c $< -o $@
+$(OUT)/mxstore.elf: $(STORE_OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(MX_LIB) $(MX_CRT0) $(MX_LD) $(LIBC_LIBS)
+	$(call link,$@,$(MX_CRT0) $(STORE_OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(LIBC_LIBS))
+$(OUT)/PS2MAX/mxstore/MXSTORE.ELF: $(OUT)/mxstore.elf $(HERE)/store/game.ini
+	@mkdir -p $(dir $@)
+	$(LLVM)/llvm-strip -o $@ $<
+	cp $(HERE)/store/game.ini $(dir $@)
+store: $(OUT)/PS2MAX/mxstore/MXSTORE.ELF
+-include $(STORE_OBJS:.o=.d)
+
 # Media on PCSX2 with the samples in build/pcsx2-test/Media
 # (tools/media-samples.sh makes them): a picture after MEDIA_FRAMES frames
 # (MEDIA_ARGS: kind=photo|video|music dev=host path=<dir> sel=<n> open
@@ -185,4 +218,4 @@ font:
 clean:
 	rm -rf $(OUT)
 
-.PHONY: all standalone shot font clean fakegame usbcopy files files-shot media media-shot home-test
+.PHONY: all standalone shot font clean fakegame usbcopy files files-shot media media-shot home-test store

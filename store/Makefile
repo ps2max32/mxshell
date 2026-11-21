@@ -1,5 +1,6 @@
-# MXSTORE, the store of mx OS (an app of MXSHELL2; its index: ps2max32/store).
-# So far its first steps, MXOS programs (libmxk) in build/apps/mxshell/store:
+# MXSTORE, the store of mx OS (an app of MXSHELL2; its index: ps2max32/store):
+# the app itself is built by the shell's Makefile (make store). This one makes
+# its network tests, MXOS programs (libmxk) in build/apps/mxshell/store:
 #
 #   tlstest.elf    DNS, a TLS handshake and an HTTPS GET, timed
 #   wget.elf       a download by src/https.c (redirects, chunked), timed, with
@@ -45,9 +46,9 @@ $(OUT)/roots.pem: $(sort $(wildcard $(HERE)/certs/*.pem))
 	@mkdir -p $(dir $@)
 	cat $^ > $@
 
-$(OUT)/obj/roots.o: $(HERE)/src/roots.S $(OUT)/roots.pem
+$(OUT)/obj/roots.o: $(HERE)/src/roots.S $(OUT)/roots.pem $(HERE)/src/index_key.pem
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -Wa,-I$(OUT) -c $< -o $@
+	$(CC) $(CFLAGS) -Wa,-I$(OUT) -Wa,-I$(HERE)/src -c $< -o $@
 
 $(OUT)/tlstest.elf: $(OUT)/obj/tlstest.o $(COMMON) $(MBEDTLS_OBJS) $(MX_LIB) $(MX_CRT0) $(MX_LD) $(LIBC_LIBS)
 	$(call link,$@,$(MX_CRT0) $(OUT)/obj/tlstest.o $(COMMON) $(MBEDTLS_OBJS) $(LIBC_LIBS))
