@@ -3,6 +3,7 @@
 
      usbcopy <from> <to> [<from> <to> ...]
      usbcopy @<list>      the pairs from a file, "<from> <to>" a line
+     rm <path>            as a pair: removes the file <path>
 
    e.g. usbcopy host:coverhd.t8 usb0:/PS2MAX/quake1/coverhd.t8. The kernel
    (version 26) has the USB drivers loaded; usbcopy checks usb0: is there,
@@ -91,6 +92,14 @@ static int copy(const char *from, const char *to) {
   return 0;
 }
 
+static int one(const char *from, const char *to) {
+  if (strcmp(from, "rm"))
+    return copy(from, to);
+  int r = mx_fio_remove(to);
+  mx_printf("usbcopy: %s: %s (%d)\n", to, r < 0 ? "not removed" : "removed", r);
+  return r < 0 ? -1 : 0;
+}
+
 int main(int argc, char **argv) {
   int d = mx_fio_dopen("usb0:/");
   if (d < 0) {
@@ -124,11 +133,11 @@ int main(int argc, char **argv) {
       }
       s = next;
       if (b && *b)
-        bad += copy(a, b) < 0, n++;
+        bad += one(a, b) < 0, n++;
     }
   } else
     for (int i = 1; i + 1 < argc; i += 2)
-      bad += copy(argv[i], argv[i + 1]) < 0, n++;
+      bad += one(argv[i], argv[i + 1]) < 0, n++;
   mx_printf("usbcopy: %d of %d failed\n", bad, n);
   return bad;
 }
