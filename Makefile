@@ -129,6 +129,27 @@ $(OUT)/PS2MAX/media/PLAYER.ELF: $(OUT)/media.elf $(MEDIA_KINDS:%=$(HERE)/media/%
 	python3 $(HERE)/tools/mk-media-covers.py $(HERE)/font/src/InterTight-Variable.ttf $(OUT)/PS2MAX
 media: $(OUT)/PS2MAX/media/PLAYER.ELF
 
+# An app of another project on the shell's drawing, font, video mode and
+# notifications (as Files): APP=<name> APP_SRCS=<its .c files, absolute>
+# APP_CFLAGS=<more flags> makes $(OUT)/app/<name>.elf. Quake 3's setup (the
+# converter of its data, apps/quake3 `make convert`) is one. Its sources are
+# compiled without -ffast-math and -cl-single-precision-constant: they may
+# count on IEEE doubles (the converter makes what the PC makes, byte for byte)
+APP_FLAGS = $(filter-out -ffast-math -cl-single-precision-constant,$(SCFLAGS))
+APP_OBJS  = $(foreach s,$(APP_SRCS),$(OUT)/app/$(APP)/$(notdir $(basename $(s))).o)
+define app_obj
+$(OUT)/app/$(APP)/$(notdir $(basename $(1))).o: $(1)
+	@mkdir -p $$(dir $$@)
+	$$(CC) $$(APP_FLAGS) $$(APP_CFLAGS) -I$(HERE)/src -I$(ZLIB) -c $$< -o $$@
+endef
+ifneq ($(APP),)
+$(foreach s,$(APP_SRCS),$(eval $(call app_obj,$(s))))
+APP_ALL = $(FILES_SRCS:%=$(OUT)/obj/%.o) $(OUT)/obj/tile.o $(OUT)/obj/font_bin.o $(ZSRCS:%=$(OUT)/obj/zlib/%.o) $(OUT)/obj/zlib/crc32.o $(APP_OBJS)
+$(OUT)/app/$(APP).elf: $(APP_ALL) $(MXGL_OBJS) $(HLSL_OBJS) $(MX_LIB) $(MX_CRT0) $(MX_LD) $(LIBC_LIBS)
+	$(call link,$@,$(MX_CRT0) $(APP_ALL) $(MXGL_OBJS) $(HLSL_OBJS) $(LIBC_LIBS))
+app: $(OUT)/app/$(APP).elf
+endif
+
 # MXSTORE, the store of mx OS (store/, an app in the shell's Apps section;
 # its index: ps2max32/store): the shell's drawing as Files, HTTPS by
 # mbedTLS (libs/mbedtls, store/src/mbedtls_user.h). $(OUT)/PS2MAX/mxstore:

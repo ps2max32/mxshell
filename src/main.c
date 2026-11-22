@@ -315,7 +315,19 @@ static void launch(void) {
   mx_mem_pressure(&mp);
   mx_printf("mxshell: launch %s: %u KB pinned, %u KB free\n", run_name, mp.pinned_frames * (MX_VM_PAGE / 1024),
             mp.free_frames * (MX_VM_PAGE / 1024));
-  int id = game_launch(g);
+  int id;
+  if (games[g].setup[0]) {
+    /* its setup first (Quake 3: its data made for the PS2, with its own
+       screen): 0 the game, 2 stopped by the user, else what went wrong */
+    id = game_setup(g);
+    int st = id > 0 ? game_wait(id) : -1;
+    mx_printf("mxshell: %s: setup %s: status %d\n", run_name, games[g].setup, st);
+    if (st != 0) {
+      game_away(id, g, st == 2 ? 0 : st);
+      return;
+    }
+  }
+  id = game_launch(g);
   game_away(id, g, id > 0 ? game_wait(id) : -1);
 }
 

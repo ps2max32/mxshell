@@ -93,6 +93,8 @@ static int read_ini(int dev, struct game *g) {
       else if (!strcmp(s, "cover_hd")) set(g->cover_hd, sizeof g->cover_hd, v);
       else if (!strcmp(s, "saves")) set(g->saves, sizeof g->saves, v);
       else if (!strcmp(s, "data")) set(g->data, sizeof g->data, v);
+      else if (!strcmp(s, "setup")) set(g->setup, sizeof g->setup, v);
+      else if (!strcmp(s, "setup_args")) set(g->setup_args, sizeof g->setup_args, v);
       else if (!strcmp(s, "order")) g->order = (u8)atoi(v);
       else if (!strcmp(s, "section")) {
         char sec[16];
@@ -251,9 +253,10 @@ void games_textures_free(void) {
     }
 }
 
-int game_launch(int i) {
+/* a program of the game's directory with its arguments ({data} replaced) */
+static int spawn(int i, const char *elf, const char *argline) {
   static char args[256];
-  game_path(args, 112, i, games[i].elf);
+  game_path(args, 112, i, elf);
   char *e = args + strlen(args) + 1;
   int argc = 1;
   /* {data} in args=: the game's data directory as data= names it, relative
@@ -261,7 +264,7 @@ int game_launch(int i) {
      games share); without data= its own, "." */
   const char *data = games[i].data[0] ? games[i].data : ".";
   u32 dl = (u32)strlen(data);
-  for (const char *s = games[i].args; *s && e < args + sizeof args - 2;) {
+  for (const char *s = argline; *s && e < args + sizeof args - 2;) {
     while (*s == ' ')
       s++;
     if (!*s)
@@ -282,3 +285,6 @@ int game_launch(int i) {
   game_path(dir, sizeof dir, i, "");
   return mx_proc_spawn_in(dir, argc, args, (u32)(e - args), 0);
 }
+
+int game_launch(int i) { return spawn(i, games[i].elf, games[i].args); }
+int game_setup(int i) { return spawn(i, games[i].setup, games[i].setup_args); }

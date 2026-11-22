@@ -186,6 +186,10 @@ void d_tile_reflection(const struct tile_look *t);
 #define MAX_GAMES 64
 struct game {
   char dir[32], title[48], year[8], type[24], elf[48], args[96], desc[160], cover[32], cover_hd[32], saves[48], data[48];
+  /* setup=: a program started before the game, each time (it says quickly
+     when there is nothing to do): status 0 starts the game, 2 (stopped by
+     the user) goes back quietly; its arguments setup_args= ({data} as in args=) */
+  char setup[32], setup_args[96];
   u32 base;  /* a colour from the title, for a tile without a cover */
   int tex;   /* the cover's texture, 0 none */
   float tex_v; /* the part of its height the cover takes */
@@ -231,6 +235,7 @@ void games_textures(void); /* the covers as textures (after a game, again) */
 void games_textures_free(void);
 /* start game i beside the shell (mx_proc_spawn): its process, or -1 */
 int game_launch(int i);
+int game_setup(int i); /* its setup= program started, as game_launch */
 /* a game paused behind the shell by the home button:
    its index in games, -1 none; game_close ends it (main.c) */
 extern int run_game;
