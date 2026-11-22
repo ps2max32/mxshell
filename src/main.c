@@ -252,9 +252,14 @@ static void game_away(int id, int g, int st) {
     screen = SCR_HUB;
     return;
   }
+  /* an app (the store, Files) may have put programs on a device or taken
+     them away: the shelf is read again */
+  int app = g >= 0 && g < ngames && games[g].sec == SEC_APPS;
   run_id = 0, run_game = -1;
   screen = SCR_HOME;
   game_ended(run_name, st);
+  if (app && !games_searching)
+    games_search();
 }
 
 /* the paused game in front again */
