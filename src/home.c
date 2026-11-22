@@ -19,7 +19,7 @@ static int focus;
 static struct spring fpos, shift;
 
 int home_sec;
-const char *const sec_name[NSECS] = {"Games", "Media", "Emulation", "Apps", "Settings"};
+const char *const sec_name[NSECS] = {"Games", "Apps", "Settings"};
 static int focus_of[NSECS];
 
 /* the row of the section: the programs that name it (Settings: its pages) */
@@ -128,7 +128,7 @@ static void caption(float x) {
     char *colon = strchr(where, ':');
     if (colon)
       colon[1] = 0;
-    kick = home_sec == SEC_APPS || home_sec == SEC_MEDIA ? "Open" : "Play";
+    kick = home_sec == SEC_APPS ? "Open" : "Play";
     title = gm->title;
     mx_snprintf(meta, sizeof meta, "%s%s%s%s%s", gm->year, gm->year[0] ? DOT : "", gm->type,
                 gm->type[0] ? DOT : "", where);
@@ -138,8 +138,8 @@ static void caption(float x) {
   } else {
     /* a section with nothing in it */
     kick = sec_name[home_sec], title = games_searching ? "Looking" : "Nothing here yet", act = 0;
-    mx_snprintf(meta, sizeof meta, "Programs with section=%s in their game.ini show here",
-                home_sec == SEC_MEDIA ? "media" : home_sec == SEC_EMU ? "emulation" : "apps");
+    mx_snprintf(meta, sizeof meta, home_sec == SEC_APPS ? "Programs with section=apps in their game.ini show here"
+                                                        : "Programs without section= in their game.ini show here");
   }
   if (x > SCR_W - MARGIN - 420)
     x = SCR_W - MARGIN - 420;
@@ -266,7 +266,9 @@ void home_input(void) {
   if (pad_pressed & MX_PAD_R1)
     section_go(1);
   if (pad_pressed & MX_PAD_CROSS && n > 0) {
-    if (game_at(focus) >= 0)
+    int g = game_at(focus);
+    /* its data in two versions, none chosen: the hub asks which first */
+    if (g >= 0 && (g == run_game || !hub_ask(g)))
       screen = SCR_LAUNCH;
   }
   if (pad_pressed & MX_PAD_TRIANGLE && game_at(focus) >= 0)

@@ -58,6 +58,8 @@ int main(int argc, char **argv) {
   mx_printf("fakegame: frames %u (%u KB), free %u (%u KB), pinned %u (%u KB)\n", p.frames,
             p.frames * (MX_VM_PAGE / 1024), p.free_frames, p.free_frames * (MX_VM_PAGE / 1024), p.pinned_frames,
             p.pinned_frames * (MX_VM_PAGE / 1024));
+  for (int i = 1; i < argc; i++) /* what the shell passed ({data}, {version}) */
+    mx_printf("fakegame: argv[%d] %s\n", i, argv[i]);
   mx_printf("fakegame: running, ends with %d\n", st);
   if (argc > 2 && !strncmp(argv[2], "trash", 5)) {
     mx_gs_init_mode(640, 448, 0);

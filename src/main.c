@@ -7,7 +7,7 @@
      dev=host        look for games on host: too (ps2client's directory)
      screen=hub|settings|boot   start on that screen
      right=<n>       the focus n tiles to the right (with pick: right n times on that row)
-     sec=<n>         start in that section (0 Games .. 4 Settings)
+     sec=<n>         start in that section (0 Games, 1 Apps, 2 Settings)
      walk            (tests) the focus a tile on every 20 frames, there and back
      refl=a|b|c      (tests) the reflection's look
      mode=<video.mode>  (tests) video.mode for this run: 240p, 288p, 480i, 576i,
@@ -15,6 +15,7 @@
      aspect=4:3|16:9 the television's shape in the SD modes
      deflicker=on|off the flicker filter in 480i and 576i
      hubk=<percent>  (tests) with screen=hub: the way in held there
+     ask             (tests) with screen=hub: Play's question (versions=)
      pick=<n>        (tests) with screen=settings: row n of the first page chosen
      page=<n>        (tests) Settings' page n open (2 Storage)
      vlist=<n>       (tests) with page=0: Video's list n open (1 the shell's
@@ -529,7 +530,10 @@ int main(int argc, char **argv) {
       note_at = (u32)atoi(a + 7);
     else if (!strcmp(a, "dev=hostonly"))
       cfg_arg("dev.host", "1"), host_only = 1;
-    else if (!strncmp(a, "hubk=", 5)) {
+    else if (!strcmp(a, "ask")) {
+      extern int hub_ask_test;
+      hub_ask_test = 1;
+    } else if (!strncmp(a, "hubk=", 5)) {
       extern float hub_pin;
       hub_pin = (float)atoi(a + 5) / 100;
     } else if (!strcmp(a, "screen=hub"))

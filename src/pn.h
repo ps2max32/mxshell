@@ -190,15 +190,19 @@ struct game {
      when there is nothing to do): status 0 starts the game, 2 (stopped by
      the user) goes back quietly; its arguments setup_args= ({data} as in args=) */
   char setup[32], setup_args[96];
+  /* versions=: its data in more than one version (games.c, game_vers) */
+  char versions[160];
   u32 base;  /* a colour from the title, for a tile without a cover */
   int tex;   /* the cover's texture, 0 none */
   float tex_v; /* the part of its height the cover takes */
   u32 size_kb;
-  u8 sec;    /* the section it is shown in (game.ini: section=media|emulation|apps), SEC_GAMES */
+  u8 sec;    /* the section it is shown in (game.ini: section=apps), SEC_GAMES */
   u8 order;  /* game.ini order=<n>: by it first (0 without), then by title */
 };
 /* Home's sections (L1 and R1 go through them): what a program is, and Settings */
-enum { SEC_GAMES, SEC_MEDIA, SEC_EMU, SEC_APPS, SEC_SETTINGS, NSECS };
+/* (Emulation gets a section of its own when there are emulators to show
+   there: until then section=emulation is shown in Apps) */
+enum { SEC_GAMES, SEC_APPS, SEC_SETTINGS, NSECS };
 extern const char *const sec_name[NSECS];
 extern int home_sec;
 extern struct game games[MAX_GAMES];
@@ -236,6 +240,20 @@ void games_textures_free(void);
 /* start game i beside the shell (mx_proc_spawn): its process, or -1 */
 int game_launch(int i);
 int game_setup(int i); /* its setup= program started, as game_launch */
+/* a game's data versions (game.ini versions=<name>:<file>:<word>,...;
+   mx-os.md "Packaging"): <file> is in the data directory, the version is
+   there when it opens; {version} in args= and setup_args= is the word */
+#define MAX_VERS 4
+struct gver {
+  char name[24], file[48], word[16];
+  u8 there;
+};
+int game_vers(int i, struct gver *v);                    /* how many (0: no versions=), each looked for */
+int game_ver_pick(int i, const struct gver *v, int n);   /* the one to start, -1: ask (two or more there) */
+int game_ver_next(int i, const struct gver *v, int n, int cur); /* the next one there after cur */
+void game_ver_save(int i, const char *word);             /* <game>/.version */
+int game_ver_there(const struct gver *v, int n);         /* how many are there */
+int hub_ask(int g); /* Play: 1 when the hub asks which version first (hub.c) */
 /* a game paused behind the shell by the home button:
    its index in games, -1 none; game_close ends it (main.c) */
 extern int run_game;

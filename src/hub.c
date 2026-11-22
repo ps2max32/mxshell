@@ -14,8 +14,13 @@ static int nsaves;
 static char save_name[3][40];
 static struct spring in;
 static int leaving;
-/* tests: hubk=<percent>, the way in held there */
+/* its data's versions (game.ini versions=): the one it starts (-1: none
+   chosen, two or more there), and asking which before Play */
+static struct gver vers[MAX_VERS];
+static int nvers, vthere, vcur = -1, asking, vsel;
+/* tests: hubk=<percent>, the way in held there; ask: Play's question */
 float hub_pin = -1;
+int hub_ask_test;
 #define W_HUB 11.0f /* the tile's way to its place: ~360 ms */
 
 /* the size of a directory, its files and those one level down */
@@ -38,9 +43,16 @@ static u32 dir_kb(const char *path, int depth) {
   return kb;
 }
 
+static void vers_read(int g) {
+  nvers = game_vers(g, vers);
+  vthere = game_ver_there(vers, nvers);
+  vcur = game_ver_pick(g, vers, nvers);
+}
+
 static void enter(int g) {
   hub_game = g;
-  in.x = 0, in.v = 0, leaving = 0;
+  in.x = 0, in.v = 0, leaving = 0, asking = 0;
+  vers_read(g);
   char path[112];
   game_path(path, sizeof path, g, "");
   path[strlen(path) - 1] = 0;
@@ -91,6 +103,22 @@ static void fact(float x, float y, float w, const char *label, const char *value
   d_text_fit(FONT_BODY, FONT_SMALL, x, y + 28, w, value, argb(C_WHITE, 1));
 }
 
+/* Play of game g (Home's cross, the hub's): 0 it may start; 1 its data is
+   there in two or more versions and none is chosen: the hub asks which */
+int hub_ask(int g) {
+  if (!games[g].versions[0])
+    return 0;
+  if (g != hub_game)
+    enter(g);
+  else
+    vers_read(g);
+  if (vcur >= 0)
+    return 0;
+  asking = 1, vsel = game_ver_next(g, vers, nvers, nvers - 1);
+  screen = SCR_HUB;
+  return 1;
+}
+
 void hub_draw(void) {
   int g = focus_game();
   if (g < 0) {
@@ -99,6 +127,8 @@ void hub_draw(void) {
   }
   if (g != hub_game)
     enter(g);
+  if (hub_ask_test)
+    hub_ask_test = 0, hub_ask(g);
   spring_step(&in, leaving ? 0 : 1, W_HUB, frame_dt);
   if (hub_pin >= 0)
     in.x = hub_pin;
@@ -135,7 +165,16 @@ void hub_draw(void) {
   y += 14;
   float bx = x;
   int paused = g == run_game;
-  bx += d_button(bx, y, SYM_CROSS, paused ? "Resume" : "Play", 1) + 12;
+  if (asking) {
+    /* which version: those there, left and right, cross plays it */
+    d_label(x, y - 6, "Which version?", argb(C_LAMP, 1));
+    for (int j = 0; j < nvers; j++)
+      if (vers[j].there)
+        bx += d_button(bx, y + 16, j == vsel ? SYM_CROSS : "", vers[j].name, j == vsel) + 12;
+  } else
+    bx += d_button(bx, y, SYM_CROSS, paused ? "Resume" : "Play", 1) + 12;
+  if (!paused && !asking && vthere >= 2)
+    bx += d_button(bx, y, SYM_SQUARE, "Version", 0) + 12;
   if (paused) {
     bx += d_button(bx, y, SYM_TRIANGLE, "Controllers", 0) + 12;
     bx += d_button(bx, y, SYM_SQUARE, "Close", 0) + 12;
@@ -154,6 +193,25 @@ void hub_draw(void) {
   v[strlen(v) - 1] = 0;
   fact(x + 2 * col, y + 8, col, "Where", v);
   y += 80;
+  if (nvers) {
+    /* its data: the version it starts */
+    if (vcur >= 0 && vers[vcur].there)
+      mx_snprintf(v, sizeof v, "%s", vers[vcur].name);
+    else if (vcur >= 0)
+      mx_snprintf(v, sizeof v, "%s (not there)", vers[vcur].name);
+    else
+      mx_snprintf(v, sizeof v, "Asked at Play");
+    fact(x, y, col - 16, "Data", v);
+    if (vthere >= 2 && vcur >= 0) {
+      int k = 0;
+      char l[64] = "";
+      for (int j = 0; j < nvers; j++)
+        if (vers[j].there)
+          k += mx_snprintf(l + k, sizeof l - k, "%s%s", k ? ", " : "", vers[j].name);
+      fact(x + col, y, 2 * col - 16, "Versions", l);
+    }
+    y += 80;
+  }
   if (nsaves) {
     d_label(x, y, "Saves", argb(C_FAINT, 1));
     for (int i = 0; i < nsaves; i++)
@@ -162,9 +220,11 @@ void hub_draw(void) {
     fact(x, y, x1 - x, "Saves", gm->saves[0] ? "None yet" : "Kept by the game itself");
 
   static const char *const hints[] = {SYM_CROSS, "Play", SYM_CIRCLE, "Back", 0};
+  static const char *const hints_vers[] = {SYM_CROSS, "Play", SYM_SQUARE, "Version", SYM_CIRCLE, "Back", 0};
+  static const char *const hints_ask[] = {SYM_CROSS, "Play this one", SYM_CIRCLE, "Back", 0};
   static const char *const hints_paused[] = {SYM_CROSS, "Resume", SYM_TRIANGLE, "Controllers", SYM_SQUARE, "Close",
                                              SYM_CIRCLE, "Back", 0};
-  hints_draw(paused ? hints_paused : hints);
+  hints_draw(paused ? hints_paused : asking ? hints_ask : vthere >= 2 ? hints_vers : hints);
   ui_fade = 1;
   status_draw();
 }
@@ -172,10 +232,41 @@ void hub_draw(void) {
 void hub_input(void) {
   if (leaving)
     return;
+  if (asking) {
+    int g = hub_game;
+    if (pad_pressed & MX_PAD_LEFT)
+      for (int k = 1; k < nvers; k++) {
+        int j = (vsel - k + nvers) % nvers;
+        if (vers[j].there) {
+          vsel = j;
+          break;
+        }
+      }
+    if (pad_pressed & MX_PAD_RIGHT)
+      vsel = game_ver_next(g, vers, nvers, vsel);
+    if (pad_pressed & MX_PAD_CIRCLE)
+      asking = 0;
+    else if (pad_pressed & MX_PAD_CROSS && g >= 0) {
+      game_ver_save(g, vers[vsel].word);
+      vcur = vsel, asking = 0;
+      screen = SCR_LAUNCH, hub_game = -1;
+    }
+    return;
+  }
   if (pad_pressed & MX_PAD_CIRCLE)
     leaving = 1;
-  if (pad_pressed & MX_PAD_CROSS)
-    screen = SCR_LAUNCH, hub_game = -1;
+  if (pad_pressed & MX_PAD_CROSS) {
+    if (hub_game < 0 || hub_game == run_game || !hub_ask(hub_game))
+      screen = SCR_LAUNCH, hub_game = -1;
+  } else if (pad_pressed & MX_PAD_SQUARE && hub_game >= 0 && hub_game != run_game && vthere >= 2) {
+    /* the next version there, from now on */
+    int j = game_ver_next(hub_game, vers, nvers, vcur >= 0 ? vcur : nvers - 1);
+    game_ver_save(hub_game, vers[j].word);
+    vcur = j;
+    char m[48];
+    mx_snprintf(m, sizeof m, "%s", vers[j].name);
+    toast(N_INFO, games[hub_game].title, m, 0);
+  }
   else if (pad_pressed & MX_PAD_TRIANGLE && hub_game >= 0 && hub_game == run_game) {
     pads_enter();
     screen = SCR_GAMEPADS;

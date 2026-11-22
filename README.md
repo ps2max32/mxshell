@@ -6,14 +6,19 @@ What is decided, what the OS still lacks and the order of the work: [PLAN.md](PL
 
 What it does now (PLAN.md, phase A):
 
-- **Home**: sections, L1 and R1 go through them: Games, Media, Emulation, Apps and Settings.
+- **Home**: sections, L1 and R1 go through them: Games, Apps and Settings.
   Each is a shelf, the lit tile with its caption; covers from `cover.t8`, else a tile with the
   title. The light follows the focus. A program's `game.ini` names its section with
-  `section=media`, `emulation` or `apps` (without it: Games), its place with `order=<n>`
+  `section=apps` (without it: Games; `emulation` is shown in Apps until it has a section of its own), its place with `order=<n>`
   (by it first, 0 without, then by title); `elf=../<dir>/<file>` names a program in another
-  directory of `PS2MAX/` (Media's three tiles share one).
+  directory of `PS2MAX/`.
 - **Game hub** (triangle): the game as a slab, its details from `game.ini`, its size and
   place, its saves where `game.ini` names them (`saves=<directory>`).
+- **Data versions** (`versions=<name>:<file>:<word>,...` in `game.ini`, maxsdk `docs/mx-os.md`
+  "Packaging"; Quake 3's full game and demo): a version is there when its file in the data
+  directory opens; `{version}` in `args=` and `setup_args=` is the chosen one's word. With two or
+  more there and none chosen, Play asks which (left and right, cross plays it) and writes
+  `<game>/.version`; the hub shows "Data" and its square (Version) switches to the next one.
 - **Starting a game** (cross): the lit tile goes to the middle as a poster, the rest goes dark,
   a line under it fills, then black; the shell gives back its covers and beam racing's memory.
   The game starts beside the shell (`mx_proc_spawn`), which waits for the kernel's events: the
@@ -126,7 +131,7 @@ make font         # font/font_<shape>.z and font.h from font/src
 make usbcopy      # tools/usbcopy.c: files to and from the USB stick through the host link
 ```
 
-Arguments (for tests): `dev=host`, `dev=hostonly`, `screen=home|hub|settings`, `sec=<n>` (the section, 0 Games .. 4 Settings), `right=<n>`,
+Arguments (for tests): `dev=host`, `dev=hostonly`, `screen=home|hub|settings`, `ask` (with `screen=hub`: Play's version question), `sec=<n>` (the section, 0 Games, 1 Apps, 2 Settings), `right=<n>`,
 `note`, `launch` (start the game in focus at once), `mode=<video.mode>` (one of 240p, 288p, 480i, 576i, 480p, 576p, 720p, 720p50, 1080i, 1080i50, 1080p24, 1080p25, 1080p30), `rgb16`,
 `shot=<frames>` (the picture to
 `host:mxshell.tga`, then the end marker), `end=<frames>` (the end marker after that many
