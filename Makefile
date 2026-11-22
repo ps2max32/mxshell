@@ -183,6 +183,15 @@ $(OUT)/PS2MAX/mxstore/MXSTORE.ELF: $(OUT)/mxstore.elf $(HERE)/store/game.ini
 store: $(OUT)/PS2MAX/mxstore/MXSTORE.ELF
 -include $(STORE_OBJS:.o=.d)
 
+# The store's package of itself (ps2max32/store docs/index-format.md, "The
+# package"): mxstore/ with MXSTORE.ELF and its game.ini, so the store updates
+# itself. The CI releases it on a tag v*
+package: $(OUT)/mxstore-ps2max.zip
+$(OUT)/mxstore-ps2max.zip: $(OUT)/PS2MAX/mxstore/MXSTORE.ELF
+	rm -f $@
+	cd $(OUT)/PS2MAX && python3 -c 'import sys, os, zipfile; z = zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED); [z.write(os.path.join(d, f)) for d, _, fs in sorted(os.walk(sys.argv[2])) for f in sorted(fs)]; z.close()' $@ mxstore
+.PHONY: package
+
 # Media on PCSX2 with the samples in build/pcsx2-test/Media
 # (tools/media-samples.sh makes them): a picture after MEDIA_FRAMES frames
 # (MEDIA_ARGS: kind=photo|video|music dev=host path=<dir> sel=<n> open

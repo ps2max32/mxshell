@@ -15,6 +15,7 @@
 #include <mbedtls/sha256.h>
 #include <mx/mx.h>
 #include <mx/sif.h>
+#include <mx/vm.h>
 #include <stdlib.h>
 #include <string.h>
 #include <zlib.h>
@@ -276,7 +277,7 @@ static int unpack_one(int zfd, u32 local, u32 method, u32 csize, u32 usize, u32 
   return r;
 }
 
-/* ---- game.ini: the index's section, the package's elf=, args=, saves=, data= ---- */
+/* ---- game.ini: the index's section, the package's elf=, args=, saves=, data=, setup=, setup_args= ---- */
 static const char *ini_get(const char *ini, const char *key, char *out, u32 n) {
   u32 l = (u32)strlen(key);
   for (const char *s = ini; s && *s;) {
@@ -356,6 +357,10 @@ static int write_ini(int dev, const struct entry *e, const char *pkg) {
     PUT("saves=%s\n", v);
   if (pkg && ini_get(pkg, "data", v, sizeof v))
     PUT("data=%s\n", v);
+  if (pkg && ini_get(pkg, "setup", v, sizeof v))
+    PUT("setup=%s\n", v);
+  if (pkg && ini_get(pkg, "setup_args", v, sizeof v))
+    PUT("setup_args=%s\n", v);
   for (int i = 0; store[i]; i++)
     if (kv_get(e, store[i]))
       PUT("%s=%s\n", store[i], kv_get(e, store[i]));
@@ -433,6 +438,19 @@ static int install_data(struct entry *e, int dev) {
   return 0;
 }
 
+/* The store's own update writes MXSTORE.ELF while it runs from it: the VM
+   reads the program's pages from its ELF, and drops clean ones to read them
+   again later, so all of them (text, rodata, data: up to .bss) are made
+   resident and kept so first, until the store ends (it runs the new one
+   from its next start) */
+extern char __text_start[], __bss_start[];
+static void pin_self(void) {
+  static int pinned;
+  if (!pinned && mx_vm_active())
+    pinned = mx_vm_pin(__text_start, (u32)(__bss_start - __text_start), 0) == 0;
+  mx_printf("store: its own pages %s\n", pinned ? "pinned" : "not pinned");
+}
+
 int install_entry(int ei, int dev) {
   struct entry *e = &entries[ei];
   if (e->kind == K_DATA)
@@ -452,6 +470,8 @@ int install_entry(int ei, int dev) {
   mx_snprintf(zip, sizeof zip, "%s/PS2MAX/.store/%s.zip", sdevs[dev].root, e->id);
   if (download(e, zip))
     return -1;
+  if (!strcmp(e->id, "mxstore"))
+    pin_self();
   int r;
 
   /* its directory */
