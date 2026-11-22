@@ -14,8 +14,10 @@
    Arguments (tests): base=<url or dir/> the site (host:site/ reads a
    directory: packages and pictures with relative URLs come from there
    too), dev=host the PC as a device to install to (and use first),
+   dev=hostonly the PC alone (tests that write: no USB drive is touched),
    sec=<n> the section at the start, open=<id> its page, install=<id>
-   install it and end (status 0 when it went in), remove=<id> the same for
+   install it and end (status 0 when it went in), data=<id> the same for
+   an installed game's data (its data entry), remove=<id> the same for
    removing, shot=<frames> the picture to host:store.tga, mode=<video mode> */
 #include <GL/gl.h>
 #include <mx/debug.h>
@@ -49,6 +51,8 @@ static int has_update(const struct entry *e) {
   return e->on_dev >= 0 && e->on_version[0] && (e->partial || strcmp(e->on_version, e->version));
 }
 static int in_section(const struct entry *e, int s) {
+  if (e->kind == K_DATA)
+    return 0; /* on its game's page */
   switch (s) {
   case SS_SYSTEM: return e->kind == K_SYSTEM;
   case SS_UPDATES: return has_update(e);
@@ -128,17 +132,9 @@ static float para(int size, float x, float y, float w, const char *s, u32 c, int
   }
   return y;
 }
-static int exists(const char *p) {
-  int fd = mx_fio_open(p, MX_FIO_RDONLY);
-  if (fd < 0)
-    return 0;
-  mx_fio_close(fd);
-  return 1;
-}
-
 /* ---- the devices: the kernel's, without the memory cards (programs go
    to a USB drive or the HDD) ---- */
-static int with_host;
+static int with_host, store_host_only;
 static u32 devs_gen = ~0u;
 static void devs_refresh(void) {
   if (pdevs_gen() == devs_gen && nsdevs)
@@ -151,7 +147,8 @@ static void devs_refresh(void) {
   /* host: first when asked for (tests) */
   for (int pass = 0; pass < 2; pass++)
     for (int i = 0; i < n && k < SDEV_MAX; i++) {
-      if (all[i].kind == MX_DEV_MC || (all[i].kind == MX_DEV_HOST) != (pass == 0))
+      if (all[i].kind == MX_DEV_MC || (all[i].kind == MX_DEV_HOST) != (pass == 0) ||
+          (store_host_only && all[i].kind != MX_DEV_HOST))
         continue;
       mx_snprintf(sdevs[k].root, sizeof sdevs[k].root, "%s", all[i].root);
       mx_snprintf(sdevs[k].name, sizeof sdevs[k].name, "%s", pdev_name(&all[i]));
@@ -292,7 +289,9 @@ static void pictures_step(void) {
 
 /* ---- the screens ---- */
 enum { S_SHELF, S_PAGE, S_VIEW, S_INSTALL, S_CONFIRM };
+#define J_DATA (-1) /* start_job: a game's data entry */
 static int page = -1, shot_sel, job_entry = -1, job_kind, confirm_replace;
+static int job_show = -1; /* whose pictures the install shows: a data entry's game */
 static int need_missing; /* the page's program: needs= files not there */
 static struct spring page_in;
 
@@ -320,28 +319,14 @@ static void page_open(int e) {
   for (int k = 0; k < en->nshots; k++)
     want(&pages[e][1 + k], &en->shots[k], 240, 135);
   worker_poke();
-  need_missing = 0;
   int d = en->on_dev >= 0 ? en->on_dev : cur_dev;
-  if (d >= 0 && en->needs[0]) {
-    char list[160];
-    mx_snprintf(list, sizeof list, "%s", en->needs);
-    for (char *s = list; s && *s;) {
-      char *c = strchr(s, ',');
-      if (c)
-        *c = 0;
-      char p[256];
-      data_path(p, sizeof p, en, d, s);
-      if (!exists(p))
-        need_missing = 1;
-      s = c ? c + 1 : 0;
-    }
-  }
+  need_missing = d >= 0 && en->needs[0] && !needs_there(en, d);
   page_in.x = 0, page_in.v = 0;
   screen = S_PAGE;
 }
 
 /* what the page's lit button does */
-enum { A_NONE, A_INSTALL, A_UPDATE, A_REPAIR, A_REPLACE };
+enum { A_NONE, A_INSTALL, A_UPDATE, A_REPAIR, A_REPLACE, A_DATA };
 static const char *why_not; /* the reason there is no button */
 static int page_action(const struct entry *e) {
   why_not = 0;
@@ -362,6 +347,20 @@ static int page_action(const struct entry *e) {
       return A_REPLACE; /* put there by hand: only after asking */
     if (strcmp(e->on_version, e->version))
       return A_UPDATE;
+    /* its data, when the store has it and it is not there */
+    if (need_missing && e->data >= 0) {
+      const struct entry *de = &entries[e->data];
+      u64 need = (u64)de->installed + de->size;
+      if (!sdevs[e->on_dev].writable) {
+        why_not = "The device cannot be written";
+        return A_NONE;
+      }
+      if (sdevs[e->on_dev].free && sdevs[e->on_dev].free < need) {
+        why_not = "Not enough free space on the device for its data";
+        return A_NONE;
+      }
+      return A_DATA;
+    }
     return A_NONE;
   }
   if (cur_dev < 0) {
@@ -384,6 +383,13 @@ static void start_job(int kind, int e, int replace) {
   if (worker_busy())
     return;
   int dev = kind == J_INSTALL && entries[e].on_dev >= 0 ? entries[e].on_dev : cur_dev;
+  job_show = e;
+  if (kind == J_DATA) {
+    /* A_DATA: the game's data entry, to the game's device */
+    dev = entries[e].on_dev;
+    e = entries[e].data;
+    kind = J_INSTALL;
+  }
   job_entry = e, job_kind = kind;
   worker_job(kind, e, dev, replace);
   screen = S_INSTALL;
@@ -644,27 +650,40 @@ static void page_draw(void) {
   d_text_fit(FONT_BODY, FONT_SMALL, x, y + 84, w, facts, argb(C_DIM, 1));
   y = para(FONT_BODY, x, y + 124, w, e->description, argb(C_WHITE, 0.88f), fxr > 0 ? 5 : 4);
   if (e->needs[0] && (need_missing || e->on_dev < 0)) {
-    char m[200];
-    mx_snprintf(m, sizeof m, "%s%s", e->needs_text[0] ? e->needs_text : "Bring your own game data.",
-                need_missing && e->on_dev >= 0 ? " Not there yet." : "");
-    struct surface s = {x, y, x + w, y + 46, 6, 0, 8, argb(C_WHITE, 0.1f), 0, 1, 0, 0, 0, 0, 0};
+    char m[240];
+    if (e->data >= 0 && need_missing)
+      mx_snprintf(m, sizeof m, "%s Or the store's: %s%s.", e->needs_text[0] ? e->needs_text : "Bring your own game data.",
+                  entries[e->data].title, e->on_dev < 0 ? ", after the install" : "");
+    else
+      mx_snprintf(m, sizeof m, "%s%s", e->needs_text[0] ? e->needs_text : "Bring your own game data.",
+                  need_missing && e->on_dev >= 0 ? " Not there yet." : "");
+    /* one or two lines */
+    int two = d_text_w(FONT_SMALL, m) > w - 32;
+    float bh = two ? 72 : 46;
+    struct surface s = {x, y, x + w, y + bh, 6, 0, 8, argb(C_WHITE, 0.1f), 0, 1, 0, 0, 0, 0, 0};
     surface_draw(&s);
-    d_text_fit(FONT_SMALL, FONT_LABEL, x + 16, y + 29, w - 32, m, argb(C_WHITE, 0.85f));
-    y += 58;
+    if (two)
+      para(FONT_SMALL, x + 16, y + 29, w - 32, m, argb(C_WHITE, 0.85f), 2);
+    else
+      d_text(FONT_SMALL, x + 16, y + 29, m, argb(C_WHITE, 0.85f));
+    y += bh + 12;
   }
 
   /* the actions: one lit */
   int act = page_action(e);
   float by = 420 > y + 8 ? 420 : y + 8, bx = x;
   char lab[48], sz[16];
-  fmt_size(sz, sizeof sz, e->size);
+  fmt_size(sz, sizeof sz, act == A_DATA ? entries[e->data].size : e->size);
   int busy = worker_busy() && job_entry >= 0;
-  if (busy && job_entry == page) {
+  if (busy && (job_entry == page || job_show == page)) {
     bx += d_button(bx, by, SYM_CROSS, job.kind == J_REMOVE ? "Removing" : "Installing", 1) + 14;
   } else if (act != A_NONE) {
-    mx_snprintf(lab, sizeof lab, "%s" DOT "%s",
-                act == A_INSTALL ? "Install" : act == A_UPDATE ? "Update" : act == A_REPLACE ? "Replace" : "Repair",
-                sz);
+    if (act == A_DATA)
+      mx_snprintf(lab, sizeof lab, "Get its data" DOT "%s", sz);
+    else
+      mx_snprintf(lab, sizeof lab, "%s" DOT "%s",
+                  act == A_INSTALL ? "Install" : act == A_UPDATE ? "Update" : act == A_REPLACE ? "Replace" : "Repair",
+                  sz);
     bx += d_button(bx, by, SYM_CROSS, lab, !busy) + 14;
   } else if (e->on_dev >= 0) {
     bx += d_button(bx, by, SYM_CROSS, "Installed", 0) + 14;
@@ -677,7 +696,7 @@ static void page_draw(void) {
   }
   if (why_not && !busy)
     d_text_fit(FONT_SMALL, FONT_LABEL, x, by + 70, w, why_not, argb(C_WARN, 1));
-  else if (busy && job_entry != page)
+  else if (busy && job_entry != page && job_show != page)
     d_text_fit(FONT_SMALL, FONT_LABEL, x, by + 70, w, "Waits for the install going on", argb(C_FAINT, 1));
 
   /* the facts */
@@ -706,6 +725,12 @@ static void page_draw(void) {
     if (e->kernel) {
       mx_snprintf(v, sizeof v, "kernel %u or newer", e->kernel);
       FACT("System", v);
+    }
+    if (e->data >= 0 && need_missing) {
+      FACT("Its data", entries[e->data].title);
+      if (entries[e->data].license[0])
+        d_text_fit(FONT_SMALL, FONT_LABEL, fxr, fy - 14, 206, entries[e->data].license, argb(C_DIM, 1));
+      fy += 20;
     }
     if (e->source[0]) {
       const char *s = strstr(e->source, "github.com/");
@@ -766,7 +791,7 @@ static void page_input(void) {
   if (pad_pressed & MX_PAD_CROSS && act == A_REPLACE)
     confirm_replace = 1, screen = S_CONFIRM;
   else if (pad_pressed & MX_PAD_CROSS && act != A_NONE)
-    start_job(J_INSTALL, page, 0);
+    start_job(act == A_DATA ? J_DATA : J_INSTALL, page, 0);
   if (pad_pressed & MX_PAD_TRIANGLE && e->on_dev >= 0 && e->on_version[0])
     confirm_replace = 0, screen = S_CONFIRM;
   if (pad_pressed & MX_PAD_SQUARE && e->on_dev < 0 && nsdevs > 1) {
@@ -813,19 +838,20 @@ static void view_input(void) {
 static int job_was_busy;
 static void install_draw(void) {
   const struct entry *e = &entries[job_entry];
+  int show = job_show >= 0 ? job_show : job_entry;
   room_begin(-1);
   room_light(SCR_W * 0.5f, 240, 480, 300, 0.07f);
   d_begin_2d();
   room_draw();
-  d_image(&pages[job_entry][0], 0, 0, SCR_W, SCR_W * 9 / 16, 0.25f);
+  d_image(&pages[show][0], 0, 0, SCR_W, SCR_W * 9 / 16, 0.25f);
   d_rect(0, 0, SCR_W, SCR_H, argb(C_INK, 0.55f), argb(C_INK, 1));
   /* the slab in the middle, the light filling it from below */
   struct tile_look slab;
   memset(&slab, 0, sizeof slab);
   slab.w = 204, slab.h = 288, slab.x = SCR_W * 0.5f - 102, slab.y = 92, slab.lit = 1, slab.fade = 1;
-  slab.base = e->base;
-  if (covers[job_entry].state == PIC_DONE)
-    slab.tex = covers[job_entry].tex[0], slab.tex_u = 1, slab.tex_v = 361.0f / 512.0f;
+  slab.base = entries[show].base;
+  if (covers[show].state == PIC_DONE)
+    slab.tex = covers[show].tex[0], slab.tex_u = 1, slab.tex_v = 361.0f / 512.0f;
   d_begin_3d();
   light_at(SCR_W * 0.5f, 0);
   d_tile(&slab);
@@ -848,7 +874,11 @@ static void install_draw(void) {
   d_text(FONT_TITLE, SCR_W * 0.5f - tw * 0.5f, 430, t, argb(C_WHITE, 1));
   if (failed)
     mx_snprintf(where, sizeof where, "%s", job.phase == PH_CANCELLED ? "Stopped" : job.message);
-  else
+  else if (e->kind == K_DATA) {
+    const char *dd = kv_get(e, "data");
+    mx_snprintf(where, sizeof where, "to %s/PS2MAX/%s", dev >= 0 ? sdevs[dev].root : "",
+                dd && !strncmp(dd, "../", 3) ? dd + 3 : e->id);
+  } else
     mx_snprintf(where, sizeof where, "%s %s/PS2MAX/%s", removing ? "from" : "to", dev >= 0 ? sdevs[dev].root : "",
                 e->id);
   tw = d_text_w(FONT_BODY, where);
@@ -883,7 +913,11 @@ static void install_draw(void) {
           mx_snprintf(m, sizeof m, "%s" DOT "%u KB/s", b, job.rate);
       } else if (i == 1 && ph > 1)
         mx_snprintf(m, sizeof m, "SHA-256 matches the index");
-      else if (i == 2 && ph >= 2)
+      else if (i == 2 && ph >= 2 && job.kb) {
+        char a[16], b[16];
+        fmt_size(a, sizeof a, (u64)job.files << 10), fmt_size(b, sizeof b, (u64)job.nfiles << 10);
+        mx_snprintf(m, sizeof m, "%s of %s", a, b);
+      } else if (i == 2 && ph >= 2)
         mx_snprintf(m, sizeof m, "%u of %u files", job.files, job.nfiles);
       d_text_fit(FONT_SMALL, FONT_LABEL, sx, 564, cw - 16, m, argb(C_FAINT, 1));
     }
@@ -891,18 +925,20 @@ static void install_draw(void) {
   static const char *const h_dl[] = {SYM_SQUARE, "Stop", SYM_CIRCLE, "Go on in the background", 0};
   static const char *const h_go[] = {SYM_CIRCLE, "Go on in the background", 0};
   static const char *const h_end[] = {SYM_CROSS, "Done", 0};
-  hints_draw(!worker_busy() ? h_end : job.phase == PH_DOWNLOAD && !removing ? h_dl : h_go);
+  hints_draw(!worker_busy()                                                  ? h_end
+             : (job.phase == PH_DOWNLOAD || (job.phase == PH_UNPACK && job.kb)) && !removing ? h_dl
+                                                                                           : h_go);
 }
 static void install_input(void) {
   if (worker_busy()) {
-    if (pad_pressed & MX_PAD_SQUARE && job.phase == PH_DOWNLOAD)
+    if (pad_pressed & MX_PAD_SQUARE && (job.phase == PH_DOWNLOAD || (job.phase == PH_UNPACK && job.kb)))
       job.cancel = 1;
     if (pad_pressed & MX_PAD_CIRCLE)
-      screen = S_PAGE, page = job_entry;
+      screen = S_PAGE, page = job_show;
     return;
   }
   if (pad_pressed & (MX_PAD_CROSS | MX_PAD_CIRCLE))
-    screen = S_PAGE, page_open(job_entry);
+    screen = S_PAGE, page_open(job_show);
 }
 /* a job ended: a notification, the shelf's rows again */
 static void job_watch(void) {
@@ -912,7 +948,10 @@ static void job_watch(void) {
     char t[64], m[64];
     if (job.phase == PH_DONE) {
       mx_snprintf(t, sizeof t, "%s %s", e->title, job_kind == J_REMOVE ? "removed" : "installed");
-      mx_snprintf(m, sizeof m, "%s" DOT "%s", e->version, job_kind == J_REMOVE ? "its own files kept" : "on the shelf");
+      if (e->kind == K_DATA)
+        mx_snprintf(m, sizeof m, "for %s", entries[job_show].title);
+      else
+        mx_snprintf(m, sizeof m, "%s" DOT "%s", e->version, job_kind == J_REMOVE ? "its own files kept" : "on the shelf");
       toast(N_INFO, t, m, 0);
     } else if (job.phase == PH_FAILED) {
       mx_snprintf(t, sizeof t, "%s not %s", e->title, job_kind == J_REMOVE ? "removed" : "installed");
@@ -1011,6 +1050,7 @@ int main(int argc, char **argv) {
 #endif
   int shot = 0;
   const char *o_open = 0, *o_install = 0, *o_remove = 0;
+  int o_data = 0;
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i];
     if (!strncmp(a, "shot=", 5))
@@ -1019,12 +1059,16 @@ int main(int argc, char **argv) {
       mx_snprintf(site_base, sizeof site_base, "%s", a + 5);
     else if (!strcmp(a, "dev=host"))
       with_host = 1;
+    else if (!strcmp(a, "dev=hostonly"))
+      with_host = store_host_only = 1; /* tests that write: never a USB drive */
     else if (!strncmp(a, "sec=", 4))
       sec = atoi(a + 4) % NSS;
     else if (!strncmp(a, "open=", 5))
       o_open = a + 5;
     else if (!strncmp(a, "install=", 8))
       o_install = a + 8;
+    else if (!strncmp(a, "data=", 5))
+      o_install = a + 5, o_data = 1;
     else if (!strncmp(a, "remove=", 7))
       o_remove = a + 7;
     else if (!strncmp(a, "mode=", 5))
@@ -1065,7 +1109,7 @@ int main(int argc, char **argv) {
         }
         page_open(e);
         if (o_install || o_remove)
-          start_job(o_install ? J_INSTALL : J_REMOVE, e, 0);
+          start_job(o_data ? J_DATA : o_install ? J_INSTALL : J_REMOVE, e, 0);
         o_started = 1;
         if (!o_install && !o_remove)
           o_done = 1;

@@ -109,6 +109,13 @@ void scan_installed(void) {
   for (int i = 0; i < nentries; i++) {
     struct entry *e = &entries[i];
     e->on_dev = -1, e->on_version[0] = 0, e->partial = 0;
+    if (e->kind == K_DATA) {
+      /* there when its needs= are (the user's own copy counts too) */
+      for (int k = 0; k < nsdevs && e->on_dev < 0 && e->needs[0]; k++)
+        if (needs_there(e, k))
+          e->on_dev = k;
+      continue;
+    }
     for (int k = 0; k < nsdevs && e->on_dev < 0; k++) {
       /* the device installed to first */
       int d = k == 0 && cur_dev >= 0 ? cur_dev : k == cur_dev ? 0 : k;
@@ -301,6 +308,31 @@ void data_path(char *out, int len, const struct entry *e, int dev, const char *f
     mx_snprintf(out, len, "%s/PS2MAX/%s/%s", sdevs[dev].root, e->id, file);
 }
 
+int needs_there(const struct entry *e, int dev) {
+  char list[200];
+  mx_snprintf(list, sizeof list, "%s", e->needs);
+  for (char *s = list; s && *s;) {
+    char *c = strchr(s, ',');
+    if (c)
+      *c = 0;
+    /* one of them is enough: "baseq3/pak0.pk3|demoq3/pak0.pk3" */
+    int any = 0;
+    for (char *a = s; a && *a && !any;) {
+      char *bar = strchr(a, '|');
+      if (bar)
+        *bar = 0;
+      char p[256];
+      data_path(p, sizeof p, e, dev, a);
+      any = exists(p);
+      a = bar ? bar + 1 : 0;
+    }
+    if (!any)
+      return 0;
+    s = c ? c + 1 : 0;
+  }
+  return 1;
+}
+
 static int write_ini(int dev, const struct entry *e, const char *pkg) {
   static char buf[4096];
   u32 n = 0;
@@ -333,8 +365,68 @@ static int write_ini(int dev, const struct entry *e, const char *pkg) {
   return write_file(p, buf, n);
 }
 
+/* the entry's url= to path, its size and SHA-256 checked against the index */
+static int download(const struct entry *e, const char *path) {
+  mkdirs(path);
+  job.phase = PH_DOWNLOAD, job.total = e->size, job.done = 0, job.kb = 0;
+  static struct dl d;
+  d.fd = mx_fio_open(path, MX_FIO_WRONLY | MX_FIO_CREAT | MX_FIO_TRUNC);
+  if (d.fd < 0)
+    return fail("Cannot write to the device");
+  mbedtls_sha256_init(&d.sha);
+  mbedtls_sha256_starts(&d.sha, 0);
+  d.n = 0, d.max = e->size, d.t0 = mxstore_cycles();
+  int r = fetch(e->url, dl_sink, &d);
+  mx_fio_close(d.fd);
+  u8 h[32];
+  mbedtls_sha256_finish(&d.sha, h);
+  mbedtls_sha256_free(&d.sha);
+  if (job.cancel) {
+    mx_fio_remove(path);
+    job.phase = PH_CANCELLED;
+    return -1;
+  }
+  if (r) {
+    mx_fio_remove(path);
+    return fail(d.n >= d.max ? "Larger than the index says" : fetch_error(r));
+  }
+  job.phase = PH_CHECK;
+  if (d.n != e->size || memcmp(h, e->sha, 32)) {
+    mx_fio_remove(path);
+    return fail("Not the file the index names (SHA-256)");
+  }
+  return 0;
+}
+
+/* a data entry: its archive to PS2MAX/.store/, unpacked into its data
+   directory (unpack.c), the archive removed. Nothing is recorded: what is
+   there is the user's from then on (needs= says whether it is there) */
+static int install_data(struct entry *e, int dev) {
+  char arc[128];
+  mx_snprintf(arc, sizeof arc, "%s/PS2MAX/.store/%s.dat", sdevs[dev].root, e->id);
+  if (download(e, arc))
+    return -1;
+  job.phase = PH_UNPACK, job.kb = 1;
+  int r = unpack_data(e, dev, arc);
+  mx_fio_remove(arc);
+  if (job.cancel) {
+    job.phase = PH_CANCELLED;
+    return -1;
+  }
+  if (r) {
+    job.phase = PH_FAILED;
+    mx_printf("store: install: %s\n", job.message);
+    return -1;
+  }
+  e->on_dev = dev;
+  job.phase = PH_DONE;
+  return 0;
+}
+
 int install_entry(int ei, int dev) {
   struct entry *e = &entries[ei];
+  if (e->kind == K_DATA)
+    return install_data(e, dev);
   if (e->update != U_NONE)
     return fail("mx OS's own parts are installed from the PC for now");
   /* a copy put there by hand (no .store) is the user's: replaced only when
@@ -348,36 +440,9 @@ int install_entry(int ei, int dev) {
   }
   char zip[128];
   mx_snprintf(zip, sizeof zip, "%s/PS2MAX/.store/%s.zip", sdevs[dev].root, e->id);
-  mkdirs(zip);
-
-  /* the package */
-  job.phase = PH_DOWNLOAD, job.total = e->size, job.done = 0;
-  static struct dl d;
-  d.fd = mx_fio_open(zip, MX_FIO_WRONLY | MX_FIO_CREAT | MX_FIO_TRUNC);
-  if (d.fd < 0)
-    return fail("Cannot write to the device");
-  mbedtls_sha256_init(&d.sha);
-  mbedtls_sha256_starts(&d.sha, 0);
-  d.n = 0, d.max = e->size, d.t0 = mxstore_cycles();
-  int r = fetch(e->url, dl_sink, &d);
-  mx_fio_close(d.fd);
-  u8 h[32];
-  mbedtls_sha256_finish(&d.sha, h);
-  mbedtls_sha256_free(&d.sha);
-  if (job.cancel) {
-    mx_fio_remove(zip);
-    job.phase = PH_CANCELLED;
+  if (download(e, zip))
     return -1;
-  }
-  if (r) {
-    mx_fio_remove(zip);
-    return fail(d.n >= d.max ? "Larger than the index says" : fetch_error(r));
-  }
-  job.phase = PH_CHECK;
-  if (d.n != e->size || memcmp(h, e->sha, 32)) {
-    mx_fio_remove(zip);
-    return fail("Not the package the index names (SHA-256)");
-  }
+  int r;
 
   /* its directory */
   int zfd = mx_fio_open(zip, MX_FIO_RDONLY);
@@ -509,7 +574,9 @@ int install_entry(int ei, int dev) {
 int remove_entry(int ei) {
   struct entry *e = &entries[ei];
   int dev = e->on_dev;
-  job.phase = PH_UNPACK;
+  job.phase = PH_UNPACK, job.kb = 0;
+  if (e->kind == K_DATA)
+    return fail("Game data is the user's: remove it with Files");
   if (dev < 0)
     return fail("It is not installed");
   static struct record r;

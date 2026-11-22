@@ -99,7 +99,7 @@ static void entry_done(struct entry *e) {
 #undef S
   const char *k = kv_get(e, "kind");
   e->kind = !k ? K_GAME : !strcmp(k, "emulator") ? K_EMULATOR : !strcmp(k, "app") ? K_APP
-          : !strcmp(k, "system") ? K_SYSTEM : K_GAME;
+          : !strcmp(k, "system") ? K_SYSTEM : !strcmp(k, "data") ? K_DATA : K_GAME;
   const char *u = kv_get(e, "update");
   e->update = !u ? U_NONE : !strcmp(u, "kernel") ? U_KERNEL : !strcmp(u, "boot") ? U_BOOT : U_NONE;
   const char *v;
@@ -208,5 +208,16 @@ int catalog_load(char *data, u32 n, const u8 *sig, u32 sig_n) {
       struct entry t = entries[j];
       entries[j] = entries[j - 1], entries[j - 1] = t;
     }
+  /* each game's data entry: the one whose for= names it */
+  for (int i = 0; i < nentries; i++) {
+    entries[i].data = -1;
+    for (int d = 0; d < nentries && entries[i].kind != K_DATA; d++) {
+      const char *f = entries[d].kind == K_DATA ? kv_get(&entries[d], "for") : 0;
+      u32 l = (u32)strlen(entries[i].id);
+      for (; f && *f; f = strchr(f, ',') ? strchr(f, ',') + 1 : 0)
+        if (!strncmp(f, entries[i].id, l) && (f[l] == ',' || !f[l]))
+          entries[i].data = d;
+    }
+  }
   return 0;
 }

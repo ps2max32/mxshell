@@ -29,7 +29,8 @@ struct pic_ref {
   u8 sha[32];
 };
 
-enum { K_GAME, K_EMULATOR, K_APP, K_SYSTEM };
+/* K_DATA: a game's data, the original archive of its makers (unpack.c) */
+enum { K_GAME, K_EMULATOR, K_APP, K_SYSTEM, K_DATA };
 enum { U_NONE, U_KERNEL, U_BOOT };
 
 struct entry {
@@ -48,6 +49,7 @@ struct entry {
   int on_dev;
   char on_version[24];
   u8 partial; /* an install that did not finish */
+  int data; /* a game: its data entry (for= names the game), -1 none */
 };
 
 extern struct entry entries[MAX_ENTRIES];
@@ -116,6 +118,7 @@ struct job {
   volatile u32 rate;   /* KB/s */
   volatile int cancel;
   int replace;         /* J_INSTALL: a copy put there by hand may be replaced */
+  int kb;              /* PH_UNPACK counts KB of the archive (a data entry), not files */
   char message[96];
 };
 extern struct job job;
@@ -136,6 +139,11 @@ u64 mxstore_cycles(void);
 /* ---- install.c (the worker's) ---- */
 int install_entry(int e, int dev);
 int remove_entry(int e);
+/* unpack.c: a data entry's archive (take=) into its data directory */
+int unpack_data(const struct entry *e, int dev, const char *archive);
+/* are all of e's needs= on device dev ("," between them, "|" between ones
+   that do instead of each other) */
+int needs_there(const struct entry *e, int dev);
 void scan_installed(void); /* entries[].on_dev from the devices */
 /* a file of e's data directory on device dev (data=; else PS2MAX/<id>/) */
 void data_path(char *out, int len, const struct entry *e, int dev, const char *file);
