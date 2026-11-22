@@ -816,6 +816,62 @@ static int gzip_skip(struct br *b) {
   return 0;
 }
 
+/* ---- a zip read as a stream: its local headers one after the other (a zip
+   inside an archive; also with a program before it, as PKLITE's
+   self-extracting DN3DSW13.SHR of Duke Nukem 3D's shareware) ---- */
+static u32 z16(const u8 *p) { return p[0] | p[1] << 8; }
+static u32 z32(const u8 *p) { return p[0] | p[1] << 8 | p[2] << 16 | (u32)p[3] << 24; }
+static int zipstream_walk(struct br *b, const char *base, int depth) {
+  for (;;) {
+    int f = br_fill(b, 30);
+    if (f < 0)
+      return -1;
+    if (f || z32(b->buf + b->pos) != 0x04034b50)
+      return 0; /* the central directory, or the end */
+    const u8 *h = b->buf + b->pos;
+    u32 flags = z16(h + 6), method = z16(h + 8), crc = z32(h + 14), cs = z32(h + 18), us = z32(h + 22);
+    u32 nl = z16(h + 26), xl = z16(h + 28);
+    if (nl >= 256 || br_fill(b, 30 + nl))
+      return -1;
+    char name[256];
+    memcpy(name, b->buf + b->pos + 30, nl), name[nl] = 0;
+    b->pos += 30 + nl;
+    if (br_skip(b, xl))
+      return -1;
+    char full[256], dst[160];
+    mx_snprintf(full, sizeof full, "%s%s", base, name);
+    norm(full);
+    int w = nl && name[nl - 1] != '/' ? wanted(full, dst, sizeof dst) : 0;
+    if (flags & 8) {
+      /* the sizes after the data: not readable as a stream */
+      mx_snprintf(werr, sizeof werr, "%s: a zip this store cannot read as a stream", base);
+      return -1;
+    }
+    if (!w) {
+      if (br_skip(b, cs))
+        return -1;
+      continue;
+    }
+    if ((flags & 1) || (method != 0 && method != 8)) {
+      mx_snprintf(werr, sizeof werr, "%s%s: a zip this store cannot read", base, name);
+      return -1;
+    }
+    struct lin l = {{lin_read}, &b->in, cs};
+    int r;
+    if (method == 8) {
+      struct zin *z = zin_new(&l.in);
+      if (!z)
+        return -1;
+      z->check = 1, z->crc = (u32)crc32(0, 0, 0), z->want_crc = crc;
+      r = member(base, name, &z->in, us, depth);
+      zin_free(z);
+    } else
+      r = member(base, name, &l.in, us, depth);
+    if (r || (l.left && br_skip(b, l.left)))
+      return -1;
+  }
+}
+
 /* ---- a stream: which archive it is ---- */
 static int walk(struct in *s, const char *base, int depth) {
   struct br *b = br_new(s);
@@ -845,6 +901,22 @@ static int walk(struct in *s, const char *base, int depth) {
       }
   } else if (n >= 262 && !memcmp(p + 257, "ustar", 5)) {
     r = tar_walk(b, base, depth);
+  } else if (n >= 4 && z32(p) == 0x04034b50) {
+    r = zipstream_walk(b, base, depth);
+  } else if (n >= 2 && p[0] == 'M' && p[1] == 'Z' && br_fill(b, PEEK) >= 0) {
+    /* a program, then a zip or an LHA archive: whichever starts first */
+    u32 zip = 0xFFFFFFFF, lha = 0xFFFFFFFF;
+    for (u32 i = 0; i + 7 <= b->len && zip == 0xFFFFFFFF && lha == 0xFFFFFFFF; i++) {
+      if (z32(b->buf + i) == 0x04034b50)
+        zip = i;
+      else if (i >= 2 && b->buf[i] == '-' && b->buf[i + 1] == 'l' && b->buf[i + 2] == 'h' && b->buf[i + 4] == '-')
+        lha = i - 2;
+    }
+    if (zip < lha) {
+      b->pos = zip;
+      r = zipstream_walk(b, base, depth);
+    } else
+      r = lha_walk(b, base, depth);
   } else if ((n >= 7 && p[2] == '-' && p[3] == 'l' && p[4] == 'h') || (n >= 2 && p[0] == 'M' && p[1] == 'Z')) {
     r = lha_walk(b, base, depth);
   } else if (!werr[0])
