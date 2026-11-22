@@ -4,7 +4,8 @@
                   how programs are shown; the shell's own picture
      Network      the kernel's status (version 30), automatic (DHCP) or
                   manual addresses: the settings net.*
-     Storage      the devices (the kernel's list), ejecting one, the swap file
+     Storage      the devices (the kernel's list), ejecting one, the system
+                  folder (system.root, kernel version 47), the swap file
      Controllers  which ports have a pad; the motors tried
      System       the shell, the kernel, the services the kernel starts
      Date and time  the kernel's time (version 29): set, the zone, summer
@@ -38,9 +39,15 @@ enum { TF_DAY = 1, TF_MONTH, TF_YEAR, TF_HOUR, TF_MINUTE };
 static int tedit;
 static struct mx_tm tset;
 static void toggle(const char *key, const char *a, const char *b, const char *def);
-/* Storage: the kernel's devices, the swap file's device chosen (-1 none) */
+/* Storage: the kernel's devices, the swap file's device chosen (-1 none),
+   the system folder's (-1 none) and which devices have a PS2MAX folder */
 static struct pdev st_dev[PDEV_MAX];
-static int st_n, st_pick;
+static int st_n, st_pick, st_sys;
+static u8 st_has_root[PDEV_MAX];
+/* the Storage page's rows after the devices */
+#define SR_SYS (st_n)
+#define SR_SWAP (st_n + 1)
+#define SR_HOST (st_n + 2)
 static struct spring sel;
 
 /* ---- Network (kernel version 30, <mx/net.h>): the kernel's status, and
@@ -110,7 +117,7 @@ static int nitems(void) {
     return vrows(r);
   }
   case P_NETWORK: return net_dhcp() ? 1 : NR_ROWS;
-  case P_STORAGE: return st_n + 2;
+  case P_STORAGE: return st_n + 3;
   case P_PADS: return 1; /* pads.c has its own rows */
   case P_TIME: return TR_ROWS;
   default: return 0;
@@ -586,11 +593,30 @@ static u32 st_gen = ~0u;
 static int swap_ok(const struct pdev *d) {
   return d->kind != MX_DEV_MC && d->kind != MX_DEV_HOST && !(d->flags & MX_DEV_READONLY);
 }
+/* where the system folder may be: a drive with a PS2MAX folder */
+static int root_ok(int d) { return swap_ok(&st_dev[d]) && st_has_root[d]; }
 static void st_read(void) {
   if (pdevs_gen() == st_gen)
     return;
   st_gen = pdevs_gen();
   st_n = pdevs_read(st_dev, PDEV_MAX, 0);
+  /* the system folder: the setting, or the one the kernel found this boot */
+  char root[MX_SETTING_VALUE], p[24];
+  if (mx_setting_get("system.root", root, sizeof root) <= 0)
+    root[0] = 0;
+  st_sys = -1;
+  for (int i = 0; i < st_n; i++) {
+    mx_snprintf(p, sizeof p, "%s/PS2MAX", st_dev[i].root);
+    int fd = swap_ok(&st_dev[i]) ? mx_fio_dopen(p) : -1;
+    st_has_root[i] = fd >= 0;
+    if (fd >= 0)
+      mx_fio_dclose(fd);
+    if (!strcmp(root, p))
+      st_sys = i;
+  }
+  for (int i = 0; st_sys < 0 && i < st_n; i++)
+    if (root_ok(i))
+      st_sys = i;
   /* the choice: where the swap file is now */
   struct mx_swap_info si;
   st_pick = -1;
@@ -603,7 +629,7 @@ static void swap_path(char *out, int len, int d) {
   if (d < 0)
     out[0] = 0;
   else
-    mx_snprintf(out, len, "%s/PS2MAX/swap.bin", st_dev[d].root);
+    mx_snprintf(out, len, "%s/PS2MAX/SWAP.SWP", st_dev[d].root); /* the kernel's name (version 47) */
 }
 
 static void page_storage(float x0, float x1, float y) {
@@ -631,15 +657,29 @@ static void page_storage(float x0, float x1, float y) {
     }
     row_line(x0, x1, y + ROW * d, l, val, in_page && item == d, 1);
   }
+  /* the system folder (MXOS's files, the shell, the swap file): left and
+     right choose the drive with a PS2MAX folder, cross keeps it */
+  const char *ch[PDEV_MAX + 1];
+  int nch = 0, on = -1;
+  for (int d = 0; d < st_n; d++)
+    if (root_ok(d)) {
+      if (d == st_sys)
+        on = nch;
+      ch[nch++] = st_dev[d].root;
+    }
+  int yr = SR_SYS, chosen = in_page && item == yr;
+  row_line(x0, x1, y + ROW * yr, "System folder", nch ? 0 : "No PS2MAX folder", chosen, 1);
+  if (nch)
+    row_seg(x1, y + ROW * yr, ch, nch, on < 0 ? 0 : on, chosen);
   /* the swap file: left and right choose the device, cross uses it */
   struct mx_swap_info si;
   memset(&si, 0, sizeof si);
   mx_swap_info(&si);
   const char *const state[] = {"None", "Waiting for its device", "Being made", "In use", "Could not be made"};
-  int ys = st_n, chosen = in_page && item == ys;
+  int ys = SR_SWAP;
+  chosen = in_page && item == ys;
   /* the choices side by side: None and the drives it may go on */
-  const char *ch[PDEV_MAX + 1];
-  int nch = 0, on = 0;
+  nch = 0, on = 0;
   ch[nch++] = "None";
   for (int d = 0; d < st_n; d++)
     if (swap_ok(&st_dev[d])) {
@@ -649,10 +689,15 @@ static void page_storage(float x0, float x1, float y) {
     }
   row_line(x0, x1, y + ROW * ys, "Swap file", 0, chosen, 1);
   row_seg(x1, y + ROW * ys, ch, nch, on, chosen);
-  row_line(x0, x1, y + ROW * (ys + 1), "Games from the PC (host:)", cfg_get("dev.host", "0")[0] == '1' ? "On" : "Off",
-       in_page && item == ys + 1, 1);
-  float ny = y + ROW * (ys + 2);
-  char m[96];
+  row_line(x0, x1, y + ROW * SR_HOST, "Games from the PC (host:)", cfg_get("dev.host", "0")[0] == '1' ? "On" : "Off",
+       in_page && item == SR_HOST, 1);
+  float ny = y + ROW * (SR_HOST + 1);
+  char m[96], r[MX_SETTING_VALUE];
+  if (mx_setting_get("system.root", r, sizeof r) <= 0)
+    mx_snprintf(r, sizeof r, "none");
+  mx_snprintf(m, sizeof m, "System folder: %s (a change: from the next start).", r);
+  row_note(x0, ny, m);
+  ny += 26;
   mx_snprintf(m, sizeof m, "Swap file: %s%s%s.", si.path[0] ? si.path : "none", si.path[0] ? DOT : "",
               si.path[0] ? state[si.state < 5 ? si.state : 0] : "");
   row_note(x0, ny, m);
@@ -668,7 +713,7 @@ void settings_goto(int pg, int swap_row) {
   pads_enter();
   st_gen = ~0u;
   st_read();
-  item = pg == P_STORAGE && swap_row ? st_n : 0;
+  item = pg == P_STORAGE && swap_row ? SR_SWAP : pg == P_STORAGE ? SR_SYS : 0;
   screen = SCR_SETTINGS;
 }
 
@@ -1152,7 +1197,19 @@ void settings_input(void) {
     }
     return;
   }
-  if (page == P_STORAGE && item == st_n && p & (MX_PAD_LEFT | MX_PAD_RIGHT)) {
+  if (page == P_STORAGE && item == SR_SYS && p & (MX_PAD_LEFT | MX_PAD_RIGHT)) {
+    /* the system folder's drive: those with a PS2MAX folder */
+    int d = p & MX_PAD_RIGHT ? 1 : -1, at = st_sys;
+    for (int k = 0; k < st_n; k++) {
+      at = (at + d + st_n) % st_n;
+      if (root_ok(at)) {
+        st_sys = at;
+        break;
+      }
+    }
+    return;
+  }
+  if (page == P_STORAGE && item == SR_SWAP && p & (MX_PAD_LEFT | MX_PAD_RIGHT)) {
     /* the swap file's device: none, then the drives it may go on */
     int d = p & MX_PAD_RIGHT ? 1 : -1, at = st_pick;
     for (int k = 0; k <= st_n; k++) {
@@ -1183,7 +1240,18 @@ void settings_input(void) {
       /* ready to remove: the kernel says why not when it is not */
       if (st_dev[item].kind != MX_DEV_MC && mx_dev_eject(st_dev[item].root) == 0)
         toast(N_DEVICE, "Ready to remove", pdev_name(&st_dev[item]), 0);
-    } else if (item == st_n) {
+    } else if (item == SR_SYS) {
+      /* kept: system.root, and the shell in it (shell.path without a
+         device is in the system folder); used from the next start */
+      if (st_sys >= 0) {
+        char r[24];
+        mx_snprintf(r, sizeof r, "%s/PS2MAX", st_dev[st_sys].root);
+        cfg_set("system.root", r);
+        cfg_set("shell.path", "mxshell/MXSHELL.ELF");
+        cfg_save();
+        toast(N_DEVICE, "System folder set", r, 0);
+      }
+    } else if (item == SR_SWAP) {
       char path[40];
       swap_path(path, sizeof path, st_pick);
       if (mx_swap_set(path, 64) < 0)

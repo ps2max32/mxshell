@@ -7,11 +7,12 @@
    triangle, Open. While a game runs nothing is drawn (the game owns the
    GS): what came meanwhile is shown when the shell is in front again.
 
-   Quiet at the start: what the kernel says about the devices, controllers
-   and swap file that are there when the PS2 starts is not shown (during
-   the boot screen and BOOT_QUIET after it), only what comes later. The
-   swap file's state is not a card of the kernel's but the shell's own
-   (ram_step): while there is no swap file a card with the memory in use
+   At the start the devices that are there and the swap file get their
+   cards (the user sees where the system is); only the controllers that
+   are there are not shown (during the boot screen and BOOT_QUIET after
+   it). The swap file's state is not a card of the kernel's but the shell's
+   own (ram_step): "Swap file in use" with its path when it is in use (at
+   the start and each time it comes); while there is none a card with the memory in use
    comes for LIFE, and again each time the memory in use passed one more
    MiB, so the user sees it run out. */
 #include <mx/debug.h>
@@ -41,6 +42,7 @@ static int nnotes;
 static struct note ram = {.kind = N_WARN, .action = MX_NOTIFY_ACTION_SWAP, .bar = -1};
 static int ram_on;
 static u32 ram_mib = ~0u; /* the MiB in use when the card came last (~0: not since) */
+static int swap_was_on;   /* the swap file was in use at the last look */
 static u32 quiet_until = ~0u; /* ticks: the start's news not shown before */
 
 static void copy(char *d, u32 n, const char *s) {
@@ -87,9 +89,8 @@ static void from_kernel(const struct mx_notify *k, int show) {
     if (mx_swap_info(&si) == 0 && (si.state == MX_SWAP_ATTACHED || si.state == MX_SWAP_NONE))
       return;
   }
-  /* the start's devices, controllers and swap file */
-  if (ticks < quiet_until && !k->urgent &&
-      (k->kind == MX_NOTIFY_DEVICE || k->kind == MX_NOTIFY_PAD || k->kind == MX_NOTIFY_SWAP))
+  /* the start's controllers */
+  if (ticks < quiet_until && !k->urgent && k->kind == MX_NOTIFY_PAD)
     return;
   n = add();
   n->id = k->id, n->urgent = k->urgent, n->action = k->action;
@@ -127,7 +128,17 @@ void ram_step(void) {
     struct mx_swap_info si;
     struct mx_vm_stats vs;
     ram_on = 0;
-    if (mx_swap_info(&si) == 0 && si.state != MX_SWAP_ATTACHED && si.state != MX_SWAP_CREATING) {
+    int got = mx_swap_info(&si) == 0;
+    /* the swap file in use: its card, after the boot screen */
+    int on = got && si.state == MX_SWAP_ATTACHED;
+    if (on && !swap_was_on && quiet_until != ~0u) {
+      char t[96];
+      mx_snprintf(t, sizeof t, "%s" DOT "%u MiB", si.path, si.mib);
+      toast(N_DEVICE, "Swap file in use", t, 0);
+    }
+    if (quiet_until != ~0u)
+      swap_was_on = on;
+    if (got && si.state != MX_SWAP_ATTACHED && si.state != MX_SWAP_CREATING) {
       mx_vm_stats(&vs);
       ram_on = vs.frames > 0;
     }

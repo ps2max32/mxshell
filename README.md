@@ -39,7 +39,9 @@ What it does now (PLAN.md, phase A):
   goes into `video.allowed`); else the shell, or the kernel, puts the kept one back. L1 + L2 +
   R1 + R2 held in the first 30 s after the start sets the region's mode (the kernel's)), Network (kernel version 30: the status, link, speed, MAC, the DHCP lease; the address automatic (DHCP) or set by hand: the settings `net.mode`, `net.ip`, `net.mask`, `net.gw`, `net.dns`, which the kernel uses a second later),
   Storage (the kernel's devices with size, free space where known, games and the swap file;
-  cross on one: ready to remove; where MXOS's swap file is, or none; games from the PC),
+  cross on one: ready to remove; the system folder (kernel version 47: a drive with a PS2MAX
+  folder, cross keeps it as `system.root` with `shell.path` `mxshell/MXSHELL.ELF`, from the next
+  start); where MXOS's swap file is (`<device>/PS2MAX/SWAP.SWP`), or none; games from the PC),
   Controllers (kernel version 28, `src/pads.c`: the pads connected, each with its player, kind,
   link, battery and light bar, cross opens its own page (state, light bar colour, motors,
   disconnect, forget); under them what is for all controllers: pairing over Bluetooth, the light
@@ -85,8 +87,9 @@ What it does now (PLAN.md, phase A):
   and go, the swap file, controllers, crashes, other programs) and the shell's own; the ones
   that came during a game when the shell is in front again. Urgent ones stay until a button or
   until the kernel says they are over; triangle on one with an action opens its page (Storage,
-  Controllers). The start is quiet: the devices, controllers and swap file that are there when
-  the PS2 starts get no card (during the boot screen and 5 s after it), only what comes later.
+  Controllers). At the start each device the shell looked on gets a card with its games, and the swap file
+  "Swap file in use" with its path and size (also each time it comes later); only the
+  controllers that are there get none (during the boot screen and 5 s after it).
   While MXOS has no swap file in use a card with the memory in use as a bar (amber from 85 %)
   comes for 4 s, and again each time one more MiB is in use, so the user sees memory run out; the kernel's own swap file cards ("in use",
   "no swap file") are not shown.

@@ -592,6 +592,18 @@ int main(int argc, char **argv) {
     if (games_searching && ticks % 15 == 0 && games_step()) {
       games_searching = 0;
       games_textures();
+      /* the start's devices (the kernel gives no cards for those there at
+         its first look): each with its games, once */
+      static int devs_told;
+      if (!devs_told) {
+        devs_told = 1;
+        for (int d = 0; d < ngdevs; d++) {
+          char t[40], m[48];
+          mx_snprintf(t, sizeof t, "%s ready", pdev_name(&gdevs[d]));
+          mx_snprintf(m, sizeof m, "%s" DOT "%d game%s", gdevs[d].root, gdev_games[d], gdev_games[d] == 1 ? "" : "s");
+          toast(N_DEVICE, t, m, 0);
+        }
+      }
       /* the paused game's tile again (or none: its device went) */
       if (run_id)
         run_game = games_find(run_root, run_dir);
