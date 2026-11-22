@@ -1,6 +1,6 @@
 /* MXSHELL2: the games, from <device>/PS2MAX/<game>/game.ini (the format
    mxshell and its package-games.sh use: title, year, type, elf, args,
-   description, cover; and saves), on the devices the kernel lists
+   description, cover; and saves, data), on the devices the kernel lists
    (devlist.c) but the memory cards. A game starts beside the shell
    (mx_proc_spawn); the shell's textures are given back first. */
 #define GL_GLEXT_PROTOTYPES 1
@@ -92,6 +92,7 @@ static int read_ini(int dev, struct game *g) {
       else if (!strcmp(s, "cover")) set(g->cover, sizeof g->cover, v);
       else if (!strcmp(s, "cover_hd")) set(g->cover_hd, sizeof g->cover_hd, v);
       else if (!strcmp(s, "saves")) set(g->saves, sizeof g->saves, v);
+      else if (!strcmp(s, "data")) set(g->data, sizeof g->data, v);
       else if (!strcmp(s, "order")) g->order = (u8)atoi(v);
       else if (!strcmp(s, "section")) {
         char sec[16];
@@ -255,13 +256,23 @@ int game_launch(int i) {
   game_path(args, 112, i, games[i].elf);
   char *e = args + strlen(args) + 1;
   int argc = 1;
+  /* {data} in args=: the game's data directory as data= names it, relative
+     to the game's directory, which it runs in ("../DATA/quake": one that
+     games share); without data= its own, "." */
+  const char *data = games[i].data[0] ? games[i].data : ".";
+  u32 dl = (u32)strlen(data);
   for (const char *s = games[i].args; *s && e < args + sizeof args - 2;) {
     while (*s == ' ')
       s++;
     if (!*s)
       break;
-    while (*s && *s != ' ' && e < args + sizeof args - 2)
+    while (*s && *s != ' ' && e < args + sizeof args - 2) {
+      if (!strncmp(s, "{data}", 6) && e + dl < args + sizeof args - 2) {
+        memcpy(e, data, dl), e += dl, s += 6;
+        continue;
+      }
       *e++ = *s++;
+    }
     *e++ = 0;
     argc++;
   }

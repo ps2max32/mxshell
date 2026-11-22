@@ -185,7 +185,7 @@ void d_tile_reflection(const struct tile_look *t);
 /* ---- the games (games.c) ---- */
 #define MAX_GAMES 64
 struct game {
-  char dir[32], title[48], year[8], type[24], elf[48], args[96], desc[160], cover[32], cover_hd[32], saves[48];
+  char dir[32], title[48], year[8], type[24], elf[48], args[96], desc[160], cover[32], cover_hd[32], saves[48], data[48];
   u32 base;  /* a colour from the title, for a tile without a cover */
   int tex;   /* the cover's texture, 0 none */
   float tex_v; /* the part of its height the cover takes */

@@ -330,7 +330,7 @@ static void page_open(int e) {
       if (c)
         *c = 0;
       char p[256];
-      mx_snprintf(p, sizeof p, "%s/PS2MAX/%s/%s", sdevs[d].root, en->id, s);
+      data_path(p, sizeof p, en, d, s);
       if (!exists(p))
         need_missing = 1;
       s = c ? c + 1 : 0;

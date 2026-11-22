@@ -269,7 +269,7 @@ static int unpack_one(int zfd, u32 local, u32 method, u32 csize, u32 usize, u32 
   return r;
 }
 
-/* ---- game.ini: the index's section, the package's elf=, args=, saves= ---- */
+/* ---- game.ini: the index's section, the package's elf=, args=, saves=, data= ---- */
 static const char *ini_get(const char *ini, const char *key, char *out, u32 n) {
   u32 l = (u32)strlen(key);
   for (const char *s = ini; s && *s;) {
@@ -286,6 +286,19 @@ static const char *ini_get(const char *ini, const char *key, char *out, u32 n) {
     s = strchr(s, '\n');
   }
   return 0;
+}
+
+/* a file of an entry's data directory (data=, relative to PS2MAX/<id>/;
+   "../DATA/quake" is PS2MAX/DATA/quake), without data= its own directory:
+   where needs= are looked for */
+void data_path(char *out, int len, const struct entry *e, int dev, const char *file) {
+  const char *d = kv_get(e, "data");
+  if (d && !strncmp(d, "../", 3))
+    mx_snprintf(out, len, "%s/PS2MAX/%s/%s", sdevs[dev].root, d + 3, file);
+  else if (d && *d)
+    mx_snprintf(out, len, "%s/PS2MAX/%s/%s/%s", sdevs[dev].root, e->id, d, file);
+  else
+    mx_snprintf(out, len, "%s/PS2MAX/%s/%s", sdevs[dev].root, e->id, file);
 }
 
 static int write_ini(int dev, const struct entry *e, const char *pkg) {
@@ -309,6 +322,8 @@ static int write_ini(int dev, const struct entry *e, const char *pkg) {
     PUT("args=%s\n", v);
   if (pkg && ini_get(pkg, "saves", v, sizeof v))
     PUT("saves=%s\n", v);
+  if (pkg && ini_get(pkg, "data", v, sizeof v))
+    PUT("data=%s\n", v);
   for (int i = 0; store[i]; i++)
     if (kv_get(e, store[i]))
       PUT("%s=%s\n", store[i], kv_get(e, store[i]));
