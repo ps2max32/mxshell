@@ -147,7 +147,7 @@ static int dl_sink(void *ctx, const void *data, u32 size) {
   if (job.cancel || d->n + size > d->max)
     return -1;
   mbedtls_sha256_update(&d->sha, data, size);
-  if (mx_fio_write(d->fd, data, size) != 0)
+  if (aw_write(data, size) != 0)
     return -1;
   d->n += size;
   job.done = d->n;
@@ -376,7 +376,13 @@ static int download(const struct entry *e, const char *path) {
   mbedtls_sha256_init(&d.sha);
   mbedtls_sha256_starts(&d.sha, 0);
   d.n = 0, d.max = e->size, d.t0 = mxstore_cycles();
+  aw_begin(d.fd);
   int r = fetch(e->url, dl_sink, &d);
+  if (aw_end() && !r && !job.cancel) {
+    mx_fio_close(d.fd);
+    mx_fio_remove(path);
+    return fail("Cannot write to the device");
+  }
   mx_fio_close(d.fd);
   u8 h[32];
   mbedtls_sha256_finish(&d.sha, h);
@@ -389,6 +395,10 @@ static int download(const struct entry *e, const char *path) {
   if (r) {
     mx_fio_remove(path);
     return fail(d.n >= d.max ? "Larger than the index says" : fetch_error(r));
+  }
+  {
+    u32 ms = (u32)((mxstore_cycles() - d.t0) / (MX_EE_HZ / 1000u));
+    mx_printf("store: %s: %u KB in %u ms (%u KB/s)\n", e->id, d.n >> 10, ms, ms ? d.n / ms : 0);
   }
   job.phase = PH_CHECK;
   if (d.n != e->size || memcmp(h, e->sha, 32)) {

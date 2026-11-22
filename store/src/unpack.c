@@ -342,13 +342,16 @@ static int member(const char *base, const char *raw, struct in *data, u32 size, 
   }
   u32 n = 0;
   int r;
+  aw_begin(fd);
   while ((r = data->read(data, obuf, CHUNK)) > 0) {
-    if (mx_fio_write(fd, obuf, (u32)r) != 0) {
+    if (aw_write(obuf, (u32)r) != 0) {
       r = -1;
       break;
     }
     n += (u32)r;
   }
+  if (aw_end())
+    r = -1;
   mx_fio_close(fd);
   if (r < 0 || (size != 0xFFFFFFFF && n != size)) {
     mx_fio_remove(path);

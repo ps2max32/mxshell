@@ -137,7 +137,7 @@ media: $(OUT)/PS2MAX/media/PLAYER.ELF
 MBEDTLS ?= $(PS2MAX)/libs/mbedtls
 STORE_CFLAGS = -I$(HERE)/store/src -I$(MBEDTLS)/include -DMBEDTLS_USER_CONFIG_FILE='"mbedtls_user.h"'
 STORE_MBEDTLS = $(patsubst %.c,$(OUT)/obj/mbedtls/%.o,$(notdir $(wildcard $(MBEDTLS)/library/*.c)))
-STORE_SRCS = store catalog fetch install unpack https port
+STORE_SRCS = store catalog fetch install unpack awrite https port
 STORE_OBJS = $(FILES_SRCS:%=$(OUT)/obj/%.o) $(OUT)/obj/tile.o $(OUT)/obj/font_bin.o $(ZSRCS:%=$(OUT)/obj/zlib/%.o) \
              $(OUT)/obj/zlib/crc32.o $(STORE_SRCS:%=$(OUT)/obj/store/%.o) $(OUT)/obj/store/roots.o $(STORE_MBEDTLS)
 $(OUT)/obj/mbedtls/%.o: $(MBEDTLS)/library/%.c $(HERE)/store/src/mbedtls_user.h

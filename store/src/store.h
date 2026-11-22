@@ -149,6 +149,11 @@ void scan_installed(void); /* entries[].on_dev from the devices */
 void data_path(char *out, int len, const struct entry *e, int dev, const char *file);
 void mkdirs(const char *path); /* each directory of path (up to its last /) */
 int write_file(const char *path, const void *data, u32 n);
+/* awrite.c: a file written by a thread of its own in large pieces, while
+   its bytes are made (one file at a time) */
+void aw_begin(int fd);
+int aw_write(const void *data, u32 n); /* 0, or -1: the device failed */
+int aw_end(void);                      /* all written: 0, or -1 */
 
 /* the running kernel's version */
 u32 kernel_version(void);
