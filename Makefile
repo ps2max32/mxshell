@@ -119,14 +119,13 @@ $(OUT)/obj/media.o: $(HERE)/media/media.c
 	$(CC) $(SCFLAGS) -I$(HERE)/src -c $< -o $@
 $(OUT)/media.elf: $(MEDIA_OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(MX_LIB) $(MX_CRT0) $(MX_LD) $(LIBC_LIBS)
 	$(call link,$@,$(MX_CRT0) $(MEDIA_OBJS) $(MXGL_OBJS) $(HLSL_OBJS) $(LIBC_LIBS))
-# the program in PS2MAX/media, and three tiles that start it, each with
-# its kind: PS2MAX/photos, videos and music (game.ini and covers)
-MEDIA_KINDS = photos videos music
-$(OUT)/PS2MAX/media/PLAYER.ELF: $(OUT)/media.elf $(MEDIA_KINDS:%=$(HERE)/media/%/game.ini) $(HERE)/tools/mk-media-covers.py
+# one app, one tile: PS2MAX/media with the program, its game.ini and its
+# cover (L1 and R1 between the kinds in it). The cover is a picture kept
+# here: media/cover.png, its .t8 files made of it by hand (tools/mk-cover.py)
+$(OUT)/PS2MAX/media/PLAYER.ELF: $(OUT)/media.elf $(addprefix $(HERE)/media/,game.ini cover.t8 coverhd.t8)
 	@mkdir -p $(dir $@)
 	$(LLVM)/llvm-strip -o $@ $<
-	for k in $(MEDIA_KINDS); do mkdir -p $(OUT)/PS2MAX/$$k && cp $(HERE)/media/$$k/game.ini $(OUT)/PS2MAX/$$k/; done
-	python3 $(HERE)/tools/mk-media-covers.py $(HERE)/font/src/InterTight-Variable.ttf $(OUT)/PS2MAX
+	cp $(addprefix $(HERE)/media/,game.ini cover.t8 coverhd.t8) $(dir $@)
 media: $(OUT)/PS2MAX/media/PLAYER.ELF
 
 # An app of another project on the shell's drawing, font, video mode and
@@ -183,13 +182,25 @@ $(OUT)/PS2MAX/mxstore/MXSTORE.ELF: $(OUT)/mxstore.elf $(HERE)/store/game.ini
 store: $(OUT)/PS2MAX/mxstore/MXSTORE.ELF
 -include $(STORE_OBJS:.o=.d)
 
-# The store's package of itself (ps2max32/store docs/index-format.md, "The
-# package"): mxstore/ with MXSTORE.ELF and its game.ini, so the store updates
-# itself. The CI releases it on a tag v*
-package: $(OUT)/mxstore-ps2max.zip
-$(OUT)/mxstore-ps2max.zip: $(OUT)/PS2MAX/mxstore/MXSTORE.ELF
-	rm -f $@
-	cd $(OUT)/PS2MAX && python3 -c 'import sys, os, zipfile; z = zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED); [z.write(os.path.join(d, f)) for d, _, fs in sorted(os.walk(sys.argv[2])) for f in sorted(fs)]; z.close()' $@ mxstore
+# The shell as the store installs it: PS2MAX/mxshell (the setting shell.path
+# names it; mx-os.md, "The shell")
+$(OUT)/PS2MAX/mxshell/MXSHELL.ELF: $(OUT)/MXOS/MXSHELL.ELF $(HERE)/src/game.ini
+	@mkdir -p $(dir $@)
+	cp $< $@
+	cp $(HERE)/src/game.ini $(dir $@)
+
+# The store's packages (ps2max32/store docs/index-format.md, "The package"):
+# <id>/ with the program and its game.ini, for mxshell (MXSHELL), files
+# (Files), media (Media) and mxstore (MXSTORE: the store updates itself).
+# The CI releases them on a tag v*
+PACKAGES = mxshell/MXSHELL.ELF files/FILES.ELF media/PLAYER.ELF mxstore/MXSTORE.ELF
+package: $(foreach p,$(PACKAGES),$(OUT)/$(firstword $(subst /, ,$(p)))-ps2max.zip)
+define package_zip
+$(OUT)/$(1)-ps2max.zip: $(OUT)/PS2MAX/$(2)
+	rm -f $$@
+	cd $(OUT)/PS2MAX && python3 -c 'import sys, os, zipfile; z = zipfile.ZipFile(sys.argv[1], "w", zipfile.ZIP_DEFLATED); [z.write(os.path.join(d, f)) for d, _, fs in sorted(os.walk(sys.argv[2])) for f in sorted(fs)]; z.close()' $$@ $(1)
+endef
+$(foreach p,$(PACKAGES),$(eval $(call package_zip,$(firstword $(subst /, ,$(p))),$(p))))
 .PHONY: package
 
 # Media on PCSX2 with the samples in build/pcsx2-test/Media

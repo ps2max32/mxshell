@@ -51,8 +51,8 @@ What it does now (PLAN.md, phase A):
   what opens as one, rename and move are a copy and a delete, and no free space is shown.
   Cross on an ELF starts it (Files waits). `make files-shot RUNNER=... FILES_ARGS="dev=host path=PS2MAX ops"` runs every
   action once in PCSX2.
-- **Media** (`media/`, three tiles in Media, Photos, Videos and Music, each starting
-  `PS2MAX/media/PLAYER.ELF` with its kind; `make media`): a device's `Media/<kind>` folder
+- **Media** (`media/`, one app and one tile, `PS2MAX/media/PLAYER.ELF`, photos, videos and
+  music in it; `make media`): a device's `Media/<kind>` folder
   first, any folder from there, L1 and R1 between the kinds, a preview of the chosen file at
   16:9. Photos (JPEG, PNG; not progressive JPEG) full screen, scaled down to fit 9 tiles of
   256 x 256, the most that fit GS memory beside 1080i's buffer; L1/R1 the folder's others.
@@ -119,8 +119,9 @@ make fakegame     # tests/fakegame.c: a stand-in game that ends with the status 
 make home-test    # the home button on PCSX2 (RUNNER=..., HOME_KERNEL=<emulator kernel, MODULE_DIR=host:>):
                   # a stand-in game pressed home twice: hub (host:mxshell-home1.tga), Resume, Close
 make files        # PS2MAX/files: FILES.ELF and its game.ini
-make media        # PS2MAX/media/PLAYER.ELF, PS2MAX/photos, videos, music (game.ini, covers)
+make media        # PS2MAX/media: PLAYER.ELF, its game.ini and cover
 make store        # PS2MAX/mxstore: MXSTORE.ELF and its game.ini
+make package      # the store's packages: mxshell-, files-, media-, mxstore-ps2max.zip
 make font         # font/font_<shape>.z and font.h from font/src
 make usbcopy      # tools/usbcopy.c: files to and from the USB stick through the host link
 ```
