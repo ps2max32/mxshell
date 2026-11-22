@@ -277,7 +277,7 @@ static int unpack_one(int zfd, u32 local, u32 method, u32 csize, u32 usize, u32 
   return r;
 }
 
-/* ---- game.ini: the index's section, the package's elf=, args=, saves=, data=, setup=, setup_args= ---- */
+/* ---- game.ini: the index's section, the package's elf=, args=, saves=, data=, setup=, setup_args=, versions= ---- */
 static const char *ini_get(const char *ini, const char *key, char *out, u32 n) {
   u32 l = (u32)strlen(key);
   for (const char *s = ini; s && *s;) {
@@ -307,6 +307,12 @@ void data_path(char *out, int len, const struct entry *e, int dev, const char *f
     mx_snprintf(out, len, "%s/PS2MAX/%s/%s/%s", sdevs[dev].root, e->id, d, file);
   else
     mx_snprintf(out, len, "%s/PS2MAX/%s/%s", sdevs[dev].root, e->id, file);
+}
+
+int data_there(const struct entry *e, int dev, const char *file) {
+  char p[256];
+  data_path(p, sizeof p, e, dev, file);
+  return exists(p);
 }
 
 int needs_there(const struct entry *e, int dev) {
@@ -361,6 +367,8 @@ static int write_ini(int dev, const struct entry *e, const char *pkg) {
     PUT("setup=%s\n", v);
   if (pkg && ini_get(pkg, "setup_args", v, sizeof v))
     PUT("setup_args=%s\n", v);
+  if (pkg && ini_get(pkg, "versions", v, sizeof v))
+    PUT("versions=%s\n", v);
   for (int i = 0; store[i]; i++)
     if (kv_get(e, store[i]))
       PUT("%s=%s\n", store[i], kv_get(e, store[i]));

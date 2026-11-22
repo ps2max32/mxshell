@@ -18,6 +18,7 @@
 #define MAX_ENTRIES 64
 #define MAX_SHOTS 6
 #define MAX_KV 40
+#define MAX_VERS 4 /* a game's data versions */
 
 struct kv {
   const char *k, *v;
@@ -49,7 +50,14 @@ struct entry {
   int on_dev;
   char on_version[24];
   u8 partial; /* an install that did not finish */
-  int data; /* a game: its data entry (for= names the game), -1 none */
+  /* a game: the versions of its data (game.ini's versions=, else one for
+     each data entry with its data directory), each with the data entry
+     that brings it (-1: only the user's own copy) */
+  struct version {
+    char name[24], file[64];
+    int data;
+  } vers[MAX_VERS];
+  int nvers;
 };
 
 extern struct entry entries[MAX_ENTRIES];
@@ -144,6 +152,7 @@ int unpack_data(const struct entry *e, int dev, const char *archive);
 /* are all of e's needs= on device dev ("," between them, "|" between ones
    that do instead of each other) */
 int needs_there(const struct entry *e, int dev);
+int data_there(const struct entry *e, int dev, const char *file); /* a file of its data directory */
 void scan_installed(void); /* entries[].on_dev from the devices */
 /* a file of e's data directory on device dev (data=; else PS2MAX/<id>/) */
 void data_path(char *out, int len, const struct entry *e, int dev, const char *file);

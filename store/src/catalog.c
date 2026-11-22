@@ -140,6 +140,8 @@ static void entry_done(struct entry *e) {
   e->on_dev = -1;
 }
 
+static void find_versions(struct entry *e);
+
 int catalog_load(char *data, u32 n, const u8 *sig, u32 sig_n) {
   nentries = 0;
   if (sig_n != 64) {
@@ -208,16 +210,71 @@ int catalog_load(char *data, u32 n, const u8 *sig, u32 sig_n) {
       struct entry t = entries[j];
       entries[j] = entries[j - 1], entries[j - 1] = t;
     }
-  /* each game's data entry: the one whose for= names it */
-  for (int i = 0; i < nentries; i++) {
-    entries[i].data = -1;
-    for (int d = 0; d < nentries && entries[i].kind != K_DATA; d++) {
-      const char *f = entries[d].kind == K_DATA ? kv_get(&entries[d], "for") : 0;
-      u32 l = (u32)strlen(entries[i].id);
-      for (; f && *f; f = strchr(f, ',') ? strchr(f, ',') + 1 : 0)
-        if (!strncmp(f, entries[i].id, l) && (f[l] == ',' || !f[l]))
-          entries[i].data = d;
-    }
-  }
+  for (int i = 0; i < nentries; i++)
+    find_versions(&entries[i]);
   return 0;
+}
+
+/* Does data entry d belong to game g: the same data directory (all the
+   games that share it show the same data), or its for= names g */
+static int data_of(const struct entry *g, const struct entry *d) {
+  const char *gd = kv_get(g, "data"), *dd = kv_get(d, "data"), *f = kv_get(d, "for");
+  if (gd && dd && !strcmp(gd, dd))
+    return 1;
+  u32 l = (u32)strlen(g->id);
+  for (; f && *f; f = strchr(f, ',') ? strchr(f, ',') + 1 : 0)
+    if (!strncmp(f, g->id, l) && (f[l] == ',' || !f[l]))
+      return 1;
+  return 0;
+}
+/* the first of a needs= ("a|b": a) */
+static void first_need(char *out, u32 n, const char *needs) {
+  u32 l = 0;
+  while (needs[l] && needs[l] != '|' && l + 1 < n)
+    out[l] = needs[l], l++;
+  out[l] = 0;
+}
+/* the data entry of g that brings file, -1 none */
+static int data_for(const struct entry *g, const char *file) {
+  for (int d = 0; d < nentries; d++)
+    if (entries[d].kind == K_DATA && data_of(g, &entries[d])) {
+      char f[64];
+      first_need(f, sizeof f, entries[d].needs);
+      if (!strcmp(f, file))
+        return d;
+    }
+  return -1;
+}
+/* a game's versions: versions= of its game.ini ("<name>:<file>:<word>",
+   "," between them; docs/index-format.md), else its data entries' */
+static void find_versions(struct entry *e) {
+  e->nvers = 0;
+  if (e->kind == K_DATA)
+    return;
+  const char *v = kv_get(e, "versions");
+  if (v) {
+    while (*v && e->nvers < MAX_VERS) {
+      struct version *ver = &e->vers[e->nvers];
+      const char *c1 = strchr(v, ':'), *end = strchr(v, ',');
+      if (!end)
+        end = v + strlen(v);
+      const char *c2 = c1 && c1 < end ? strchr(c1 + 1, ':') : 0;
+      if (c1 && c1 < end) {
+        const char *fe = c2 && c2 < end ? c2 : end;
+        mx_snprintf(ver->name, sizeof ver->name, "%.*s", (int)(c1 - v), v);
+        mx_snprintf(ver->file, sizeof ver->file, "%.*s", (int)(fe - c1 - 1), c1 + 1);
+        ver->data = data_for(e, ver->file);
+        e->nvers++;
+      }
+      v = *end ? end + 1 : end;
+    }
+    return;
+  }
+  for (int d = 0; d < nentries && e->nvers < MAX_VERS; d++)
+    if (entries[d].kind == K_DATA && data_of(e, &entries[d])) {
+      struct version *ver = &e->vers[e->nvers++];
+      mx_snprintf(ver->name, sizeof ver->name, "%s", entries[d].title);
+      first_need(ver->file, sizeof ver->file, entries[d].needs);
+      ver->data = d;
+    }
 }

@@ -293,6 +293,16 @@ enum { S_SHELF, S_PAGE, S_VIEW, S_INSTALL, S_CONFIRM };
 static int page = -1, shot_sel, job_entry = -1, job_kind, confirm_replace;
 static int job_show = -1; /* whose pictures the install shows: a data entry's game */
 static int need_missing; /* the page's program: needs= files not there */
+/* the page's game's data versions: there on its device (or the one it
+   installs to), and the one chosen with up and down (-1: the program's
+   own button) */
+static u8 ver_there[MAX_VERS];
+static int ver_sel = -1;
+static void versions_look(const struct entry *en) {
+  int d = en->on_dev >= 0 ? en->on_dev : cur_dev;
+  for (int i = 0; i < en->nvers; i++)
+    ver_there[i] = d >= 0 && data_there(en, d, en->vers[i].file);
+}
 static struct spring page_in;
 
 /* hero 512 x 288 (four tiles), the shots 240 x 135 (one each): nine tiles a
@@ -321,12 +331,15 @@ static void page_open(int e) {
   worker_poke();
   int d = en->on_dev >= 0 ? en->on_dev : cur_dev;
   need_missing = d >= 0 && en->needs[0] && !needs_there(en, d);
+  versions_look(en);
+  if (ver_sel >= en->nvers)
+    ver_sel = -1;
   page_in.x = 0, page_in.v = 0;
   screen = S_PAGE;
 }
 
 /* what the page's lit button does */
-enum { A_NONE, A_INSTALL, A_UPDATE, A_REPAIR, A_REPLACE, A_DATA };
+enum { A_NONE, A_INSTALL, A_UPDATE, A_REPAIR, A_REPLACE };
 static const char *why_not; /* the reason there is no button */
 static int page_action(const struct entry *e) {
   why_not = 0;
@@ -347,20 +360,6 @@ static int page_action(const struct entry *e) {
       return A_REPLACE; /* put there by hand: only after asking */
     if (strcmp(e->on_version, e->version))
       return A_UPDATE;
-    /* its data, when the store has it and it is not there */
-    if (need_missing && e->data >= 0) {
-      const struct entry *de = &entries[e->data];
-      u64 need = (u64)de->installed + de->size;
-      if (!sdevs[e->on_dev].writable) {
-        why_not = "The device cannot be written";
-        return A_NONE;
-      }
-      if (sdevs[e->on_dev].free && sdevs[e->on_dev].free < need) {
-        why_not = "Not enough free space on the device for its data";
-        return A_NONE;
-      }
-      return A_DATA;
-    }
     return A_NONE;
   }
   if (cur_dev < 0) {
@@ -379,15 +378,39 @@ static int page_action(const struct entry *e) {
   return A_INSTALL;
 }
 
+/* can data version v of the page's game be got now: 1, else 0 with why in
+   *why (0: no reason to show) */
+static int version_get(const struct entry *e, int v, const char **why) {
+  *why = 0;
+  const struct version *ver = &e->vers[v];
+  if (ver_there[v] || ver->data < 0)
+    return 0;
+  if (e->on_dev < 0) {
+    *why = "After the install";
+    return 0;
+  }
+  const struct entry *de = &entries[ver->data];
+  if (!sdevs[e->on_dev].writable) {
+    *why = "The device cannot be written";
+    return 0;
+  }
+  if (sdevs[e->on_dev].free && sdevs[e->on_dev].free < (u64)de->installed + de->size) {
+    *why = "Not enough free space on the device for it";
+    return 0;
+  }
+  return 1;
+}
+
+static int job_data = -1; /* J_DATA: the data entry */
 static void start_job(int kind, int e, int replace) {
   if (worker_busy())
     return;
   int dev = kind == J_INSTALL && entries[e].on_dev >= 0 ? entries[e].on_dev : cur_dev;
   job_show = e;
   if (kind == J_DATA) {
-    /* A_DATA: the game's data entry, to the game's device */
+    /* a version of the game's data: its data entry, to the game's device */
     dev = entries[e].on_dev;
-    e = entries[e].data;
+    e = job_data;
     kind = J_INSTALL;
   }
   job_entry = e, job_kind = kind;
@@ -649,14 +672,10 @@ static void page_draw(void) {
                 e->players);
   d_text_fit(FONT_BODY, FONT_SMALL, x, y + 84, w, facts, argb(C_DIM, 1));
   y = para(FONT_BODY, x, y + 124, w, e->description, argb(C_WHITE, 0.88f), fxr > 0 ? 5 : 4);
-  if (e->needs[0] && (need_missing || e->on_dev < 0)) {
+  if (e->needs[0] && !e->nvers && (need_missing || e->on_dev < 0)) {
     char m[240];
-    if (e->data >= 0 && need_missing)
-      mx_snprintf(m, sizeof m, "%s Or the store's: %s%s.", e->needs_text[0] ? e->needs_text : "Bring your own game data.",
-                  entries[e->data].title, e->on_dev < 0 ? ", after the install" : "");
-    else
-      mx_snprintf(m, sizeof m, "%s%s", e->needs_text[0] ? e->needs_text : "Bring your own game data.",
-                  need_missing && e->on_dev >= 0 ? " Not there yet." : "");
+    mx_snprintf(m, sizeof m, "%s%s", e->needs_text[0] ? e->needs_text : "Bring your own game data.",
+                need_missing && e->on_dev >= 0 ? " Not there yet." : "");
     /* one or two lines */
     int two = d_text_w(FONT_SMALL, m) > w - 32;
     float bh = two ? 72 : 46;
@@ -669,22 +688,63 @@ static void page_draw(void) {
     y += bh + 12;
   }
 
+  /* its data's versions: one a line, up and down choose one */
+  int busy = worker_busy() && job_entry >= 0;
+  if (e->nvers) {
+    d_label(x, y + 6, "Its data", argb(C_FAINT, 1));
+    y += 22;
+    for (int i = 0; i < e->nvers; i++) {
+      const struct version *ver = &e->vers[i];
+      int lit = i == ver_sel;
+      struct surface s = {x, y, x + w, y + 44, 6, 0, 8, argb(lit ? C_LAMP : C_WHITE, lit ? 0.35f : 0.08f), 0, 1, 0, 0, 0,
+                          0, 0};
+      surface_draw(&s);
+      d_text_fit(FONT_BODY, FONT_SMALL, x + 16, y + 30, w * 0.4f, ver->name, argb(C_WHITE, 1));
+      char m[128], where[96];
+      const char *why;
+      int can = version_get(e, i, &why);
+      if (ver_there[i])
+        mx_snprintf(m, sizeof m, "There");
+      else if (ver->data >= 0) {
+        char dsz[16];
+        fmt_size(dsz, sizeof dsz, entries[ver->data].size);
+        mx_snprintf(m, sizeof m, "In the store" DOT "%s%s%s", dsz, why ? DOT : "", why ? why : "");
+      } else {
+        /* the user's own copy: where its files go */
+        const char *dd = kv_get(e, "data");
+        const char *sl = strrchr(ver->file, '/');
+        if (dd && !strncmp(dd, "../", 3))
+          mx_snprintf(where, sizeof where, "PS2MAX/%s/%.*s", dd + 3, sl ? (int)(sl - ver->file + 1) : 0, ver->file);
+        else
+          mx_snprintf(where, sizeof where, "PS2MAX/%s/%s%s%.*s", e->id, dd ? dd : "", dd ? "/" : "",
+                      sl ? (int)(sl - ver->file + 1) : 0, ver->file);
+        mx_snprintf(m, sizeof m, "Your own copy, in %s", where);
+      }
+      float tx = x + 16 + w * 0.4f;
+      if (lit && can && !busy) {
+        char g[32], dsz[16];
+        fmt_size(dsz, sizeof dsz, entries[ver->data].size);
+        mx_snprintf(g, sizeof g, "Get" DOT "%s", dsz);
+        d_button(x + w - 200, y + 2, SYM_CROSS, g, 1);
+        d_text_fit(FONT_SMALL, FONT_LABEL, tx, y + 29, w - 220 - w * 0.4f, m, argb(C_DIM, 1));
+      } else
+        d_text_fit(FONT_SMALL, FONT_LABEL, tx, y + 29, w * 0.6f - 32, m,
+                   argb(ver_there[i] ? C_LAMP : C_DIM, 1));
+      y += 52;
+    }
+  }
+
   /* the actions: one lit */
   int act = page_action(e);
   float by = 420 > y + 8 ? 420 : y + 8, bx = x;
   char lab[48], sz[16];
-  fmt_size(sz, sizeof sz, act == A_DATA ? entries[e->data].size : e->size);
-  int busy = worker_busy() && job_entry >= 0;
+  fmt_size(sz, sizeof sz, e->size);
   if (busy && (job_entry == page || job_show == page)) {
     bx += d_button(bx, by, SYM_CROSS, job.kind == J_REMOVE ? "Removing" : "Installing", 1) + 14;
   } else if (act != A_NONE) {
-    if (act == A_DATA)
-      mx_snprintf(lab, sizeof lab, "Get its data" DOT "%s", sz);
-    else
-      mx_snprintf(lab, sizeof lab, "%s" DOT "%s",
-                  act == A_INSTALL ? "Install" : act == A_UPDATE ? "Update" : act == A_REPLACE ? "Replace" : "Repair",
-                  sz);
-    bx += d_button(bx, by, SYM_CROSS, lab, !busy) + 14;
+    mx_snprintf(lab, sizeof lab, "%s" DOT "%s",
+                act == A_INSTALL ? "Install" : act == A_UPDATE ? "Update" : act == A_REPLACE ? "Replace" : "Repair", sz);
+    bx += d_button(bx, by, SYM_CROSS, lab, !busy && ver_sel < 0) + 14;
   } else if (e->on_dev >= 0) {
     bx += d_button(bx, by, SYM_CROSS, "Installed", 0) + 14;
   }
@@ -726,10 +786,11 @@ static void page_draw(void) {
       mx_snprintf(v, sizeof v, "kernel %u or newer", e->kernel);
       FACT("System", v);
     }
-    if (e->data >= 0 && need_missing) {
-      FACT("Its data", entries[e->data].title);
-      if (entries[e->data].license[0])
-        d_text_fit(FONT_SMALL, FONT_LABEL, fxr, fy - 14, 206, entries[e->data].license, argb(C_DIM, 1));
+    if (ver_sel >= 0 && e->vers[ver_sel].data >= 0) {
+      const struct entry *de = &entries[e->vers[ver_sel].data];
+      FACT("Its data", de->title);
+      if (de->license[0])
+        d_text_fit(FONT_SMALL, FONT_LABEL, fxr, fy - 14, 206, de->license, argb(C_DIM, 1));
       fy += 20;
     }
     if (e->source[0]) {
@@ -760,8 +821,11 @@ static void page_draw(void) {
     }
   }
   static const char *const h_shots[] = {"L1", "Shot", "R1", "Shot", "R2", "View", SYM_CIRCLE, "Back", 0};
+  static const char *const h_shots_d[] = {"Up/Down", "Its data", "L1",  "Shot",     "R1", "Shot",
+                                          "R2",      "View",     SYM_CIRCLE, "Back", 0};
   static const char *const h[] = {SYM_CIRCLE, "Back", 0};
-  hints_draw(e->nshots ? h_shots : h);
+  static const char *const h_d[] = {"Up/Down", "Its data", SYM_CIRCLE, "Back", 0};
+  hints_draw(e->nshots ? (e->nvers ? h_shots_d : h_shots) : e->nvers ? h_d : h);
   job_strip();
 }
 
@@ -785,13 +849,26 @@ static void page_input(void) {
       screen = S_VIEW;
     }
   }
+  /* up and down: the data's versions, above them the program's button */
+  if (pad_pressed & MX_PAD_DOWN && ver_sel + 1 < e->nvers)
+    ver_sel++;
+  if (pad_pressed & MX_PAD_UP && ver_sel >= 0)
+    ver_sel--;
   if (worker_busy())
     return;
+  if (ver_sel >= 0) {
+    const char *why;
+    if (pad_pressed & MX_PAD_CROSS && version_get(e, ver_sel, &why)) {
+      job_data = e->vers[ver_sel].data;
+      start_job(J_DATA, page, 0);
+    }
+    return;
+  }
   int act = page_action(e);
   if (pad_pressed & MX_PAD_CROSS && act == A_REPLACE)
     confirm_replace = 1, screen = S_CONFIRM;
   else if (pad_pressed & MX_PAD_CROSS && act != A_NONE)
-    start_job(act == A_DATA ? J_DATA : J_INSTALL, page, 0);
+    start_job(J_INSTALL, page, 0);
   if (pad_pressed & MX_PAD_TRIANGLE && e->on_dev >= 0 && e->on_version[0])
     confirm_replace = 0, screen = S_CONFIRM;
   if (pad_pressed & MX_PAD_SQUARE && e->on_dev < 0 && nsdevs > 1) {
@@ -1108,6 +1185,12 @@ int main(int argc, char **argv) {
           return 1;
         }
         page_open(e);
+        /* data=: the first version of its data the store brings that is
+           not there */
+        if (o_data)
+          for (int v = entries[e].nvers - 1; v >= 0; v--)
+            if (entries[e].vers[v].data >= 0 && !ver_there[v])
+              job_data = entries[e].vers[v].data;
         if (o_install || o_remove)
           start_job(o_data ? J_DATA : o_install ? J_INSTALL : J_REMOVE, e, 0);
         o_started = 1;
