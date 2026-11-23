@@ -741,7 +741,7 @@ static void page_draw(void) {
         else
           mx_snprintf(where, sizeof where, "%s/%s%s%.*s", e->id, dd ? dd : "", dd ? "/" : "",
                       sl ? (int)(sl - ver->file + 1) : 0, ver->file);
-        mx_snprintf(m, sizeof m, "Your own copy: %s in the system folder", where);
+        mx_snprintf(m, sizeof m, "Your own copy: %s", where);
       }
       float tx = x + 16 + w * 0.4f;
       if (lit && can && !busy) {
