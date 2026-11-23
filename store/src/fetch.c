@@ -122,7 +122,7 @@ u8 *pic_bytes(const struct pic_ref *ref, u32 max, u32 *n) {
   hex(ref->sha, name);
   u8 h[32];
   if (cur_dev >= 0) {
-    mx_snprintf(path, sizeof path, "%s/PS2MAX/.store/img/%s", sdevs[cur_dev].root, name);
+    mx_snprintf(path, sizeof path, "%s/.store/img/%s", sdevs[cur_dev].base, name);
     int fd = mx_fio_open(path, MX_FIO_RDONLY);
     if (fd >= 0) {
       int got = mx_fio_read(fd, buf, max);

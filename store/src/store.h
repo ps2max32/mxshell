@@ -78,6 +78,8 @@ u32 title_colour(const char *t);
 #define SDEV_MAX 8
 struct sdev {
   char root[12]; /* "usb0:" */
+  char base[48]; /* its PS2MAX folder, where programs go: the system folder (setting
+                    system.root, kernel 47) when that is on this device, else "usb0:/PS2MAX" */
   char name[24];
   u64 free;      /* bytes, 0 not known */
   int writable;

@@ -25,6 +25,7 @@
 #include <mx/loader.h>
 #include <mx/mx.h>
 #include <mx/pad.h>
+#include <mx/setting.h>
 #include <mx/sif.h>
 #include <mx/thread.h>
 #include <stdlib.h>
@@ -133,7 +134,19 @@ static float para(int size, float x, float y, float w, const char *s, u32 c, int
   return y;
 }
 /* ---- the devices: the kernel's, without the memory cards (programs go
-   to a USB drive or the HDD) ---- */
+   to a USB drive or the HDD). With a system folder (the setting
+   system.root, kernel 47: "usb0:/PS2MAX") programs go under it, on its
+   device alone ---- */
+static void dev_base(struct sdev *d, const char *sysroot) {
+  u32 l = (u32)strlen(d->root);
+  if (sysroot[0] && !strncmp(sysroot, d->root, l) && sysroot[l] == '/')
+    mx_snprintf(d->base, sizeof d->base, "%s", sysroot);
+  else
+    mx_snprintf(d->base, sizeof d->base, "%s/PS2MAX", d->root);
+  u32 n = (u32)strlen(d->base);
+  while (n > 1 && d->base[n - 1] == '/')
+    d->base[--n] = 0;
+}
 static int with_host, store_host_only;
 static u32 devs_gen = ~0u;
 static void devs_refresh(void) {
@@ -144,13 +157,23 @@ static void devs_refresh(void) {
   mx_snprintf(keep, sizeof keep, "%s", cur_dev >= 0 ? sdevs[cur_dev].root : "");
   struct pdev all[PDEV_MAX];
   int n = pdevs_read(all, PDEV_MAX, with_host), k = 0;
+  char sysroot[48];
+  if (mx_setting_get("system.root", sysroot, sizeof sysroot) <= 0)
+    sysroot[0] = 0;
+  if (!strchr(sysroot, ':'))
+    sysroot[0] = 0; /* not a path with a device: none */
+  u32 rl = (u32)strcspn(sysroot, ":") + 1; /* "usb0:" */
   /* host: first when asked for (tests) */
   for (int pass = 0; pass < 2; pass++)
     for (int i = 0; i < n && k < SDEV_MAX; i++) {
       if (all[i].kind == MX_DEV_MC || (all[i].kind == MX_DEV_HOST) != (pass == 0) ||
           (store_host_only && all[i].kind != MX_DEV_HOST))
         continue;
+      /* a system folder: only its device (host: is for tests) */
+      if (sysroot[0] && all[i].kind != MX_DEV_HOST && (strlen(all[i].root) != rl || strncmp(all[i].root, sysroot, rl)))
+        continue;
       mx_snprintf(sdevs[k].root, sizeof sdevs[k].root, "%s", all[i].root);
+      dev_base(&sdevs[k], sysroot);
       mx_snprintf(sdevs[k].name, sizeof sdevs[k].name, "%s", pdev_name(&all[i]));
       sdevs[k].free = all[i].free;
       sdevs[k].writable = !(all[i].flags & MX_DEV_READONLY);
@@ -714,11 +737,11 @@ static void page_draw(void) {
         const char *dd = kv_get(e, "data");
         const char *sl = strrchr(ver->file, '/');
         if (dd && !strncmp(dd, "../", 3))
-          mx_snprintf(where, sizeof where, "PS2MAX/%s/%.*s", dd + 3, sl ? (int)(sl - ver->file + 1) : 0, ver->file);
+          mx_snprintf(where, sizeof where, "%s/%.*s", dd + 3, sl ? (int)(sl - ver->file + 1) : 0, ver->file);
         else
-          mx_snprintf(where, sizeof where, "PS2MAX/%s/%s%s%.*s", e->id, dd ? dd : "", dd ? "/" : "",
+          mx_snprintf(where, sizeof where, "%s/%s%s%.*s", e->id, dd ? dd : "", dd ? "/" : "",
                       sl ? (int)(sl - ver->file + 1) : 0, ver->file);
-        mx_snprintf(m, sizeof m, "Your own copy, in %s", where);
+        mx_snprintf(m, sizeof m, "Your own copy: %s in the system folder", where);
       }
       float tx = x + 16 + w * 0.4f;
       if (lit && can && !busy) {
@@ -953,11 +976,10 @@ static void install_draw(void) {
     mx_snprintf(where, sizeof where, "%s", job.phase == PH_CANCELLED ? "Stopped" : job.message);
   else if (e->kind == K_DATA) {
     const char *dd = kv_get(e, "data");
-    mx_snprintf(where, sizeof where, "to %s/PS2MAX/%s", dev >= 0 ? sdevs[dev].root : "",
+    mx_snprintf(where, sizeof where, "to %s/%s", dev >= 0 ? sdevs[dev].base : "",
                 dd && !strncmp(dd, "../", 3) ? dd + 3 : e->id);
   } else
-    mx_snprintf(where, sizeof where, "%s %s/PS2MAX/%s", removing ? "from" : "to", dev >= 0 ? sdevs[dev].root : "",
-                e->id);
+    mx_snprintf(where, sizeof where, "%s %s/%s", removing ? "from" : "to", dev >= 0 ? sdevs[dev].base : "", e->id);
   tw = d_text_w(FONT_BODY, where);
   d_text(FONT_BODY, SCR_W * 0.5f - tw * 0.5f, 462, where, argb(failed ? C_WARN : C_DIM, 1));
   /* the progress: the floor lit from the left */

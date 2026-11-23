@@ -37,7 +37,7 @@ struct record {
 };
 
 static void path_of(char *out, int len, int dev, const char *id, const char *file) {
-  mx_snprintf(out, len, "%s/PS2MAX/%s%s%s", sdevs[dev].root, id, file ? "/" : "", file ? file : "");
+  mx_snprintf(out, len, "%s/%s%s%s", sdevs[dev].base, id, file ? "/" : "", file ? file : "");
 }
 
 static int record_read(int dev, const char *id, struct record *r) {
@@ -302,11 +302,11 @@ static const char *ini_get(const char *ini, const char *key, char *out, u32 n) {
 void data_path(char *out, int len, const struct entry *e, int dev, const char *file) {
   const char *d = kv_get(e, "data");
   if (d && !strncmp(d, "../", 3))
-    mx_snprintf(out, len, "%s/PS2MAX/%s/%s", sdevs[dev].root, d + 3, file);
+    mx_snprintf(out, len, "%s/%s/%s", sdevs[dev].base, d + 3, file);
   else if (d && *d)
-    mx_snprintf(out, len, "%s/PS2MAX/%s/%s/%s", sdevs[dev].root, e->id, d, file);
+    mx_snprintf(out, len, "%s/%s/%s/%s", sdevs[dev].base, e->id, d, file);
   else
-    mx_snprintf(out, len, "%s/PS2MAX/%s/%s", sdevs[dev].root, e->id, file);
+    mx_snprintf(out, len, "%s/%s/%s", sdevs[dev].base, e->id, file);
 }
 
 int data_there(const struct entry *e, int dev, const char *file) {
@@ -426,7 +426,7 @@ static int download(const struct entry *e, const char *path) {
    there is the user's from then on (needs= says whether it is there) */
 static int install_data(struct entry *e, int dev) {
   char arc[128];
-  mx_snprintf(arc, sizeof arc, "%s/PS2MAX/.store/%s.dat", sdevs[dev].root, e->id);
+  mx_snprintf(arc, sizeof arc, "%s/.store/%s.dat", sdevs[dev].base, e->id);
   if (download(e, arc))
     return -1;
   job.phase = PH_UNPACK, job.kb = 1;
@@ -475,7 +475,7 @@ int install_entry(int ei, int dev) {
       return fail("A copy put there by hand: not replaced");
   }
   char zip[128];
-  mx_snprintf(zip, sizeof zip, "%s/PS2MAX/.store/%s.zip", sdevs[dev].root, e->id);
+  mx_snprintf(zip, sizeof zip, "%s/.store/%s.zip", sdevs[dev].base, e->id);
   if (download(e, zip))
     return -1;
   if (!strcmp(e->id, "mxstore"))
@@ -551,7 +551,7 @@ int install_entry(int ei, int dev) {
     const char *rel = name + idl + 1;
     if (!*rel || name[nl - 1] == '/') {
       char dp[320];
-      mx_snprintf(dp, sizeof dp, "%s/PS2MAX/%s", sdevs[dev].root, name);
+      mx_snprintf(dp, sizeof dp, "%s/%s", sdevs[dev].base, name);
       mkdirs(dp);
       continue;
     }
@@ -562,7 +562,7 @@ int install_entry(int ei, int dev) {
     if (!strcmp(rel, ".store"))
       continue;
     char fp[320];
-    mx_snprintf(fp, sizeof fp, "%s/PS2MAX/%s", sdevs[dev].root, name);
+    mx_snprintf(fp, sizeof fp, "%s/%s", sdevs[dev].base, name);
     r = unpack_one(zfd, local, method, cs, us, crc, fp, 0, 0);
     if (r)
       mx_snprintf(job.message, sizeof job.message, "%s", rel);
@@ -605,7 +605,7 @@ int install_entry(int ei, int dev) {
   e->on_dev = dev, e->partial = 0;
   mx_snprintf(e->on_version, sizeof e->on_version, "%s", e->version);
   job.phase = PH_DONE;
-  mx_printf("store: %s %s installed on %s: %d files\n", e->id, e->version, sdevs[dev].root, now.n);
+  mx_printf("store: %s %s installed in %s: %d files\n", e->id, e->version, sdevs[dev].base, now.n);
   return 0;
 }
 
