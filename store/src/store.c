@@ -502,7 +502,7 @@ static void caption(float x) {
     x = SCR_W - MARGIN - 440;
   if (focus >= nrow) {
     const char *t = index_state == IX_READY ? (sec == SS_UPDATES ? "Everything is up to date" : "Nothing here yet")
-                                            : index_state == IX_FAILED ? "The store is not there" : "Looking";
+                                            : index_state == IX_FAILED ? index_title : "Looking";
     d_label(MARGIN, y, ss_name[sec], argb(C_LAMP, 1));
     d_text_fit(FONT_DISP, FONT_TITLE, MARGIN - 2, y + 54, SCR_W - 2 * MARGIN, t, argb(C_WHITE, 1));
     d_text_fit(FONT_BODY, FONT_SMALL, MARGIN, y + 86, SCR_W - 2 * MARGIN,

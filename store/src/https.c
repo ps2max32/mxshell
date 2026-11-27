@@ -68,6 +68,8 @@ int https_init(void) {
 
 const char *https_tls_error(void) { return tls_error; }
 
+u32 https_cert_flags;
+
 const char *https_strerror(int e) {
   static const char *const text[] = {
       "done",          "bad URL",         "no address for the host", "no connection",
@@ -170,6 +172,7 @@ static int conn_open(const char *host, u32 port, struct https_result *r) {
   if (n) {
     u32 flags = mbedtls_ssl_get_verify_result(&c.ssl);
     int cert = flags && flags != (u32)-1;
+    https_cert_flags = cert ? flags : 0;
     if (cert)
       mbedtls_x509_crt_verify_info(tls_error, sizeof tls_error, "", flags);
     else

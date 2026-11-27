@@ -114,6 +114,7 @@ extern struct picture view_pic; /* a screenshot at its full size */
 /* the state of the index, for the screens */
 enum { IX_NONE, IX_LOADING, IX_READY, IX_FAILED };
 extern volatile int index_state;
+extern char index_title[48]; /* why it failed, the caption's title */
 extern char index_message[96];
 
 /* a job of the worker's, one at a time */

@@ -41,6 +41,10 @@ int https_init(void);
 int https_get(const char *url, https_sink sink, void *ctx, struct https_result *r);
 /* the last TLS error or certificate problem, as text ("" when none) */
 const char *https_tls_error(void);
+/* the last certificate's verification flags (mbedTLS MBEDTLS_X509_BADCERT_*),
+   0 when none: HTTPS_ECERT with BADCERT_FUTURE or _EXPIRED is mostly a clock
+   that is wrong */
+extern u32 https_cert_flags;
 /* error codes as text */
 const char *https_strerror(int e);
 

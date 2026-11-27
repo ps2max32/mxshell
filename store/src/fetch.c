@@ -10,11 +10,14 @@
 #include "store.h"
 
 #include <mbedtls/sha256.h>
+#include <mbedtls/x509.h>
 #include <mx/kernel.h>
 #include <mx/mx.h>
 #include <mx/sif.h>
 #include <mx/pic.h>
 #include <mx/thread.h>
+#include <mx/net.h>
+#include <mx/time.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -25,7 +28,7 @@
 char site_base[160] = "https://ps2max32.github.io/store/";
 struct picture covers[MAX_ENTRIES], pages[MAX_ENTRIES][PAGE_PICS], view_pic;
 volatile int index_state;
-char index_message[96];
+char index_title[48], index_message[96];
 struct job job;
 struct sdev sdevs[SDEV_MAX];
 int nsdevs, cur_dev = -1;
@@ -222,22 +225,107 @@ static struct picture *pic_wanted(void) {
 
 /* ---- the index ---- */
 static char index_buf[INDEX_MAX + 1];
+/* the middle dot between parts of a path (src/pn.h DOT) */
+#define SEP " \x05 "
+static void fail(const char *title, const char *msg) {
+  mx_snprintf(index_title, sizeof index_title, "%s", title);
+  mx_snprintf(index_message, sizeof index_message, "%s", msg);
+  mx_printf("store: %s: %s\n", title, msg);
+  index_state = IX_FAILED;
+}
+/* this build's day (__DATE__, "Nov 27 2026") as seconds: a clock before it is
+   wrong for certain */
+static s64 built(void) {
+  static const char mon[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+  const char *d = __DATE__;
+  int m = 0;
+  while (m < 12 && strncmp(mon + 3 * m, d, 3))
+    m++;
+  int day = atoi(d + 4), y = atoi(d + 7);
+  /* days since 1970 (civil from days, Howard Hinnant) */
+  int yy = y - (m + 1 <= 2), era = yy / 400, yoe = yy - era * 400;
+  int doy = (153 * ((m + 1) + ((m + 1) > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+  int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return ((s64)era * 146097 + doe - 719468) * 86400;
+}
+static void clock_wrong(s64 t) {
+  static const char *const mon[] = {"January", "February", "March",     "April",   "May",      "June",
+                                    "July",    "August",   "September", "October", "November", "December"};
+  struct mx_tm tm;
+  mx_gmtime(t, &tm);
+  char m[96];
+  mx_snprintf(m, sizeof m, "It says %d %s %d. Set it in Settings" SEP "Date and time, then try again.", tm.day,
+              mon[tm.month - 1], tm.year);
+  fail("The PS2's clock is wrong", m);
+}
+/* before the site: what is certainly in the way (the clock, the network) */
+static int ready_for_site(void) {
+  if (strncmp(site_base, "https://", 8))
+    return 1; /* a directory (tests) */
+  s64 t = mx_time();
+  if (!t) {
+    fail("The PS2's clock is not set", "Set it in Settings" SEP "Date and time, then try again.");
+    return 0;
+  }
+  if (t < built()) {
+    clock_wrong(t);
+    return 0;
+  }
+  struct mx_net_status n;
+  if (mx_net_status(&n) == 0) {
+    if (!n.up) {
+      fail("No network", "The network is not started.");
+      return 0;
+    }
+    if (!n.link) {
+      fail("No network cable", "Connect the PS2 to the network, then try again.");
+      return 0;
+    }
+    if (!n.ip) {
+      fail("No network address", n.dhcp == MX_NET_DHCP_SEARCHING
+                                     ? "Still asking for one (DHCP). Try again in a moment."
+                                     : "Set one in Settings" SEP "Network.");
+      return 0;
+    }
+  }
+  return 1;
+}
+/* why the index did not come, for the user */
+static void fetch_failed(int r) {
+  char m[96];
+  if (r == HTTPS_ECERT && https_cert_flags & (MBEDTLS_X509_BADCERT_FUTURE | MBEDTLS_X509_BADCERT_EXPIRED))
+    clock_wrong(mx_time());
+  else if (r == HTTPS_EDNS)
+    fail("The site's name is not found", "Check the DNS server in Settings" SEP "Network.");
+  else if (r == HTTPS_ECONNECT)
+    fail("No answer from the site", "The network has no way out, or the site is down. Try again later.");
+  else if (r == HTTPS_ECERT) {
+    mx_snprintf(m, sizeof m, "Its certificate is not trusted: %s", https_tls_error());
+    fail("The site is not trusted", m);
+  } else if (r == HTTPS_EIO)
+    fail("The connection broke", "Try again.");
+  else {
+    mx_snprintf(m, sizeof m, "No index: %s", fetch_error(r));
+    fail("The store is not there", m);
+  }
+}
 static void load_index(void) {
   index_state = IX_LOADING;
   mx_snprintf(index_message, sizeof index_message, "Loading the index");
+  if (!ready_for_site())
+    return;
   static u8 sig[128];
   struct mem m = {(u8 *)index_buf, 0, INDEX_MAX}, s = {sig, 0, sizeof sig};
   int r = fetch("index.ini", mem_sink, &m);
   if (!r)
     r = fetch("index.sig", mem_sink, &s);
   if (r) {
-    mx_snprintf(index_message, sizeof index_message, "No index: %s", fetch_error(r));
-    index_state = IX_FAILED;
+    fetch_failed(r);
     return;
   }
-  if (catalog_load(index_buf, m.n, sig, s.n) < 0) {
-    mx_snprintf(index_message, sizeof index_message, "%s", catalog_error);
-    index_state = IX_FAILED;
+  int c = catalog_load(index_buf, m.n, sig, s.n);
+  if (c < 0) {
+    fail(c == -2 ? "A newer MXSTORE is needed" : "The index is not signed by us", catalog_error);
     return;
   }
   mx_printf("store: index of %s, %d programs\n", index_generated, nentries);
