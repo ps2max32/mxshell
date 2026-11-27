@@ -74,7 +74,7 @@ What it does now (PLAN.md, phase A):
 - **Store** (`store/`, MXSTORE, a tile in Apps: `make store` makes `PS2MAX/mxstore/` with
   `MXSTORE.ELF` and its `game.ini`): the programs of the signed index on GitHub Pages
   ([ps2max32/store](https://github.com/ps2max32/store), its format in `docs/index-format.md`
-  there), a shelf per section (Games, Emulation, Apps, System, Updates), a page per program (its
+  there), a shelf per section (Games, Apps, System, Updates; emulators in Apps, as in the shell), a page per program (its
   wide picture, its cover, facts, screenshots: R2 shows one large), and installing, updating
   and removing on a USB drive or the hard disk (square: which). HTTPS by mbedTLS on the EE
   (`libs/mbedtls`), all network and file work on a thread of its own. An install writes the

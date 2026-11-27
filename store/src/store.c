@@ -43,8 +43,10 @@ int screen;
 int pad_on; /* pn.h */
 
 /* ---- the sections ---- */
-enum { SS_GAMES, SS_EMU, SS_APPS, SS_SYSTEM, SS_UPDATES, NSS };
-static const char *const ss_name[NSS] = {"Games", "Emulation", "Apps", "System", "Updates"};
+/* as the shell's (src/pn.h): emulation is in Apps until the shell has a
+   section for it */
+enum { SS_GAMES, SS_APPS, SS_SYSTEM, SS_UPDATES, NSS };
+static const char *const ss_name[NSS] = {"Games", "Apps", "System", "Updates"};
 static int sec, focus_of[NSS], focus;
 static struct spring fpos, shift;
 
@@ -57,8 +59,9 @@ static int in_section(const struct entry *e, int s) {
   switch (s) {
   case SS_SYSTEM: return e->kind == K_SYSTEM;
   case SS_UPDATES: return has_update(e);
-  case SS_EMU: return e->kind != K_SYSTEM && !strcmp(e->section, "emulation");
-  case SS_APPS: return e->kind != K_SYSTEM && (!strcmp(e->section, "apps") || !strcmp(e->section, "media"));
+  case SS_APPS:
+    return e->kind != K_SYSTEM &&
+           (!strcmp(e->section, "apps") || !strcmp(e->section, "emulation") || !strcmp(e->section, "media"));
   default:
     return e->kind != K_SYSTEM && strcmp(e->section, "emulation") && strcmp(e->section, "apps") &&
            strcmp(e->section, "media");
