@@ -875,10 +875,13 @@ static void page_input(void) {
       screen = S_VIEW;
     }
   }
-  /* up and down: the data's versions, above them the program's button */
-  if (pad_pressed & MX_PAD_DOWN && ver_sel + 1 < e->nvers)
-    ver_sel++;
-  if (pad_pressed & MX_PAD_UP && ver_sel >= 0)
+  /* up and down: the data's versions, below them the program's button
+     (ver_sel -1), as they are on the page */
+  if (pad_pressed & MX_PAD_DOWN && ver_sel >= 0)
+    ver_sel = ver_sel + 1 < e->nvers ? ver_sel + 1 : -1;
+  else if (pad_pressed & MX_PAD_UP && ver_sel < 0 && e->nvers)
+    ver_sel = e->nvers - 1;
+  else if (pad_pressed & MX_PAD_UP && ver_sel > 0)
     ver_sel--;
   if (worker_busy())
     return;
