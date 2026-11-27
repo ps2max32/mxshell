@@ -9,7 +9,7 @@
 
    At the start the devices that are there and the swap file get their
    cards (the user sees where the system is); only the controllers that
-   are there are not shown (during the boot screen and BOOT_QUIET after
+   are there and the network's state (the tray shows it) are not shown (during the boot screen and BOOT_QUIET after
    it). The swap file's state is not a card of the kernel's but the shell's
    own (ram_step): "Swap file in use" with its path when it is in use (at
    the start and each time it comes); while there is none a card with the memory in use
@@ -89,8 +89,8 @@ static void from_kernel(const struct mx_notify *k, int show) {
     if (mx_swap_info(&si) == 0 && (si.state == MX_SWAP_ATTACHED || si.state == MX_SWAP_NONE))
       return;
   }
-  /* the start's controllers */
-  if (ticks < quiet_until && !k->urgent && k->kind == MX_NOTIFY_PAD)
+  /* the start's controllers and network (the tray shows the network) */
+  if (ticks < quiet_until && !k->urgent && (k->kind == MX_NOTIFY_PAD || k->kind == MX_NOTIFY_NET))
     return;
   n = add();
   n->id = k->id, n->urgent = k->urgent, n->action = k->action;

@@ -4,8 +4,12 @@
    as a bar under it (the lamp's colour while charging, orange when low,
    none for a controller port's pad). Left of them the devices: memory
    cards, USB drives, the hard disk, an SD card in MX4SIO; the one with the
-   swap file in the lamp's colour. */
+   swap file in the lamp's colour. Left of them the network (kernel version
+   30): LAN in the lamp's colour with a link and an address, dimmed while
+   it has a link but no address yet, faint without a cable, not shown
+   while the network is not started. */
 #include <mx/dev.h>
+#include <mx/net.h>
 #include <mx/pad.h>
 #include <string.h>
 
@@ -17,6 +21,19 @@ static u32 pads_seen = ~0u;
 static struct pdev devs[PDEV_MAX];
 static int ndevs;
 static u32 devs_seen = ~0u;
+static struct mx_net_status net;
+static int net_up;
+
+/* an Ethernet socket, its middle at cx, its foot at y */
+static void net_glyph(float cx, float y, u32 c) {
+  struct surface s = {.glass = -1, .line = c, .a = 1, .hollow = 1, .r = 2};
+  s.x0 = cx - 8, s.x1 = cx + 8, s.y0 = y - 12, s.y1 = y;
+  surface_draw(&s);
+  s.x0 = cx - 3, s.x1 = cx + 3, s.y0 = y - 16, s.y1 = y - 12, s.r = 1;
+  surface_draw(&s);
+  for (int i = -1; i <= 1; i++)
+    d_rect(cx + i * 4 - 0.6f, y - 7, cx + i * 4 + 0.6f, y - 3, c, c);
+}
 
 static void read_pads(void) {
   u32 g = mx_pad_gen();
@@ -130,6 +147,19 @@ void tray_draw(void) {
     glyph(devs[i].kind, cx, cy + 4, argb(c, swap ? 1 : 0.8f));
     d_label(cx - lw / 2, cy + 22, n, argb(swap ? C_LAMP : C_FAINT, 1));
     x -= w + 14, shown++;
+  }
+  /* the network, after a thin line (looked at twice a second) */
+  if (ticks % 30 == 0 || !net.gen)
+    net_up = mx_net_status(&net) == 0 && net.up;
+  if (net_up) {
+    d_rect(x - 2, cy - 15, x - 1, cy + 17, argb(C_WHITE, 0.12f), argb(C_WHITE, 0.12f)), x -= 16;
+    int on = net.link && net.ip;
+    u32 c = on ? C_LAMP : C_DIM;
+    float a = on ? 1 : net.link ? 0.8f : 0.35f;
+    float lw = d_label_w("LAN"), w = lw > 20 ? lw : 20, cx = x - w / 2;
+    net_glyph(cx, cy + 4, argb(c, a));
+    d_label(cx - lw / 2, cy + 22, "LAN", argb(on ? C_LAMP : C_FAINT, net.link ? 1 : 0.5f));
+    x -= w + 14;
   }
   /* the clock, when the time is known */
   char t[16];

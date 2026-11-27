@@ -53,11 +53,13 @@ static struct spring sel;
 /* ---- Network (kernel version 30, <mx/net.h>): the kernel's status, and
    the set-up as settings: net.mode "dhcp" or "manual" (net.ip, net.mask,
    net.gw, net.dns), which the kernel applies a second after the last
-   change. The manual addresses are edited here and written together ---- */
+   change. The mode and the manual addresses are chosen here and written
+   together only by Apply settings ---- */
 enum { NR_MODE, NR_IP, NR_MASK, NR_GW, NR_DNS, NR_USE, NR_ROWS };
 static const char *const net_key[NR_USE] = {0, "net.ip", "net.mask", "net.gw", "net.dns"};
 static u8 ip[NR_USE][4]; /* the manual addresses, NR_IP..NR_DNS */
 static int ip_dirty;
+static int net_manual; /* the mode chosen on the page (applied by Apply settings) */
 
 static int net_dhcp(void) { return !strcmp(cfg_get("net.mode", "manual"), "dhcp"); }
 
@@ -89,7 +91,13 @@ static void ip_load(void) {
       addr_of(now[r], ip[r]);
   }
   ip_dirty = 0;
+  net_manual = !net_dhcp();
 }
+/* the page's rows: the mode, the addresses (to edit only with Manual),
+   Apply settings; with Automatic the mode and Apply alone are chosen */
+static int net_apply_item(void) { return net_manual ? NR_USE : 1; }
+/* something to apply: another mode, or changed addresses */
+static int net_pending(void) { return net_manual != !net_dhcp() || (net_manual && ip_dirty); }
 
 /* the manual set-up in use: the four addresses, then the mode (the kernel
    applies them all a second after the last) */
@@ -116,7 +124,7 @@ static int nitems(void) {
     int r[16];
     return vrows(r);
   }
-  case P_NETWORK: return net_dhcp() ? 1 : NR_ROWS;
+  case P_NETWORK: return net_apply_item() + 1;
   case P_STORAGE: return st_n + 3;
   case P_PADS: return 1; /* pads.c has its own rows */
   case P_TIME: return TR_ROWS;
@@ -523,7 +531,7 @@ static void addr_value(float x1, float y, const u8 *a, int chosen, int part) {
 
 static void page_network(float x0, float x1, float y) {
   struct mx_net_status ns;
-  int have = mx_net_status(&ns) == 0 && ns.up, dhcp = net_dhcp();
+  int have = mx_net_status(&ns) == 0 && ns.up, dhcp = !net_manual;
   /* the status */
   char v[64], sub[64];
   if (!have)
@@ -553,6 +561,8 @@ static void page_network(float x0, float x1, float y) {
                                                                                  : "From the network (DHCP)");
   else
     mx_snprintf(sub, sizeof sub, "Set here");
+  if (net_pending())
+    mx_snprintf(sub, sizeof sub, "%s", dhcp ? "From the network (DHCP): not applied yet" : "Set here: not applied yet");
   static const char *const l[2] = {"Automatic", "Manual"};
   vrow(x0, x1, yy, "Address", sub, chosen);
   row_seg(x1, yy, l, 2, !dhcp, chosen);
@@ -574,17 +584,13 @@ static void page_network(float x0, float x1, float y) {
     } else
       addr_value(x1, yy, ip[r], chosen, chosen && edit ? edit : 0);
   }
+  /* Apply settings: the mode and the addresses chosen here, only now */
   yy += ROW;
-  if (!dhcp) {
-    chosen = in_page && item == NR_USE;
-    const char *u = ip_dirty ? "Use these addresses" : "In use";
-    float mid = yy - text_mid(FONT_BODY);
-    if (chosen)
-      d_highlight(x0 - 18, mid - 26, x1 + 18, mid + 26, 10, 0.07f, 0.03f, 0.5f);
-    d_text(FONT_BODY, x0, yy, u, argb(ip_dirty ? C_WHITE : C_FAINT, 1));
-    yy += ROW;
-  }
-  row_note(x0, yy - 20, dhcp ? "A PC's link (ps2client) uses the address above." : "A new address is used a second after it is set.");
+  chosen = in_page && item == net_apply_item();
+  float mid = yy - text_mid(FONT_BODY);
+  if (chosen)
+    d_highlight(x0 - 18, mid - 26, x1 + 18, mid + 26, 10, 0.07f, 0.03f, 0.5f);
+  d_text(FONT_BODY, x0, yy, "Apply settings", argb(net_pending() ? C_WHITE : C_FAINT, 1));
 }
 
 /* ---- Storage: the kernel's devices, the swap file, games from the PC ---- */
@@ -1179,22 +1185,10 @@ void settings_input(void) {
   }
 
   if (page == P_NETWORK && item == NR_MODE && p & (MX_PAD_LEFT | MX_PAD_RIGHT | MX_PAD_CROSS)) {
-    /* Automatic, or Manual with the addresses in use now (the address
-       stays until it is changed here) */
-    int manual = p & MX_PAD_CROSS ? net_dhcp() : !!(p & MX_PAD_RIGHT);
-    if (manual == !net_dhcp())
-      return;
-    if (manual) {
-      struct mx_net_status ns;
-      if (mx_net_status(&ns) == 0 && ns.ip) {
-        addr_of(ns.ip, ip[NR_IP]), addr_of(ns.mask, ip[NR_MASK]), addr_of(ns.gw, ip[NR_GW]);
-        addr_of(ns.dns, ip[NR_DNS]);
-      }
-      ip_save();
-    } else {
-      cfg_set("net.mode", "dhcp");
-      cfg_save();
-    }
+    /* Automatic or Manual, chosen only: Apply settings uses it. Manual
+       shows the manual addresses kept last */
+    if (p & (MX_PAD_LEFT | MX_PAD_RIGHT))
+      net_manual = !!(p & MX_PAD_RIGHT);
     return;
   }
   if (page == P_STORAGE && item == SR_SYS && p & (MX_PAD_LEFT | MX_PAD_RIGHT)) {
@@ -1230,10 +1224,17 @@ void settings_input(void) {
     return;
   switch (page) {
   case P_NETWORK:
-    if (item >= NR_IP && item < NR_USE)
+    if (net_manual && item >= NR_IP && item < NR_USE)
       edit = 1;
-    else if (item == NR_USE && ip_dirty)
-      ip_save();
+    else if (item == net_apply_item() && net_pending()) {
+      if (net_manual)
+        ip_save();
+      else {
+        cfg_set("net.mode", "dhcp");
+        cfg_save();
+      }
+      toast(N_INFO, "Network", net_manual ? "Manual addresses applied" : "Automatic (DHCP) applied", 0);
+    }
     break;
   case P_STORAGE:
     if (item < st_n) {
